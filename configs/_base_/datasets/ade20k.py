@@ -39,6 +39,7 @@ data = dict(
         data_root=data_root,
         img_dir='images/training',
         ann_dir='annotations/training',
+        ratio=0.1,
         pipeline=train_pipeline),
     val=dict(
         type=dataset_type,
