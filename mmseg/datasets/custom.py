@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os.path as osp
 import warnings
+import random
 from collections import OrderedDict
 
 import mmcv
@@ -87,7 +88,11 @@ class CustomDataset(Dataset):
                  reduce_zero_label=False,
                  classes=None,
                  palette=None,
+<<<<<<< HEAD
                  gt_seg_map_loader_cfg=None):
+=======
+                 ratio=1.0):
+>>>>>>> origin/custom_data
         self.pipeline = Compose(pipeline)
         self.img_dir = img_dir
         self.img_suffix = img_suffix
@@ -101,6 +106,7 @@ class CustomDataset(Dataset):
         self.label_map = None
         self.CLASSES, self.PALETTE = self.get_classes_and_palette(
             classes, palette)
+<<<<<<< HEAD
         self.gt_seg_map_loader = LoadAnnotations(
         ) if gt_seg_map_loader_cfg is None else LoadAnnotations(
             **gt_seg_map_loader_cfg)
@@ -108,6 +114,10 @@ class CustomDataset(Dataset):
         if test_mode:
             assert self.CLASSES is not None, \
                 '`cls.CLASSES` or `classes` should be specified when testing'
+=======
+        assert 0 < ratio <= 1.0
+        self.ratio = ratio
+>>>>>>> origin/custom_data
 
         # join paths if data_root is specified
         if self.data_root is not None:
@@ -122,6 +132,13 @@ class CustomDataset(Dataset):
         self.img_infos = self.load_annotations(self.img_dir, self.img_suffix,
                                                self.ann_dir,
                                                self.seg_map_suffix, self.split)
+        if self.ratio < 1:
+            # set sample random seed
+            random.seed(1)
+            sample_lenth = int(len(self.img_infos) * self.ratio)
+            logger = get_root_logger()
+            logger.info(f'Random sample {sample_lenth} images from dataset')
+            self.img_infos = random.sample(self.img_infos, sample_lenth)
 
     def __len__(self):
         """Total number of samples of data."""
