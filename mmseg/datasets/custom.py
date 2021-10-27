@@ -88,11 +88,8 @@ class CustomDataset(Dataset):
                  reduce_zero_label=False,
                  classes=None,
                  palette=None,
-<<<<<<< HEAD
-                 gt_seg_map_loader_cfg=None):
-=======
+                 gt_seg_map_loader_cfg=None,
                  ratio=1.0):
->>>>>>> origin/custom_data
         self.pipeline = Compose(pipeline)
         self.img_dir = img_dir
         self.img_suffix = img_suffix
@@ -104,9 +101,7 @@ class CustomDataset(Dataset):
         self.ignore_index = ignore_index
         self.reduce_zero_label = reduce_zero_label
         self.label_map = None
-        self.CLASSES, self.PALETTE = self.get_classes_and_palette(
-            classes, palette)
-<<<<<<< HEAD
+        self.CLASSES, self.PALETTE = self.get_classes_and_palette(classes, palette)
         self.gt_seg_map_loader = LoadAnnotations(
         ) if gt_seg_map_loader_cfg is None else LoadAnnotations(
             **gt_seg_map_loader_cfg)
@@ -114,10 +109,9 @@ class CustomDataset(Dataset):
         if test_mode:
             assert self.CLASSES is not None, \
                 '`cls.CLASSES` or `classes` should be specified when testing'
-=======
+
         assert 0 < ratio <= 1.0
         self.ratio = ratio
->>>>>>> origin/custom_data
 
         # join paths if data_root is specified
         if self.data_root is not None:
