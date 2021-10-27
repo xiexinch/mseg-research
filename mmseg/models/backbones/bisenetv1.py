@@ -157,6 +157,8 @@ class ContextPath(BaseModule):
                                            of Context Path must be 3!'
 
         self.backbone = build_backbone(backbone_cfg)
+        if hasattr(self.backbone, 'train'):
+            self.backbone.train()
 
         self.align_corners = align_corners
         self.arm16 = AttentionRefinementModule(context_channels[1],
