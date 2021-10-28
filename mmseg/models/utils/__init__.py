@@ -1,4 +1,4 @@
-from .embed import PatchEmbed
+from .embed import PatchEmbed, PatchMerging
 from .inverted_residual import InvertedResidual, InvertedResidualV3
 from .make_divisible import make_divisible
 from .res_layer import ResLayer
@@ -6,10 +6,10 @@ from .se_layer import SELayer
 from .self_attention_block import SelfAttentionBlock
 from .shape_convert import nchw_to_nlc, nlc_to_nchw
 from .up_conv_block import UpConvBlock
-from .bisenetv1_components import TransformerSpatialPath
+from .bisenetv1_components import TransformerSpatialPath, build_spatial_path, ShiftWindowTransformerSpatialPath
 
 __all__ = [
     'ResLayer', 'SelfAttentionBlock', 'make_divisible', 'InvertedResidual',
     'UpConvBlock', 'InvertedResidualV3', 'SELayer', 'PatchEmbed',
-    'nchw_to_nlc', 'nlc_to_nchw', 'TransformerSpatialPath'
+    'nchw_to_nlc', 'nlc_to_nchw', 'TransformerSpatialPath', 'PatchMerging'
 ]
