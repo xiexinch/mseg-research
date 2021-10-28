@@ -226,7 +226,7 @@ class BiSeNetV1EXP(BaseModule):
                  in_channels=3,
                  spatial_channels=(64, 64, 64, 128),
                  embed_dims=128,
-                 patch_embed_kernel=8,
+                 patch_embed_kernel=16,
                  num_layers=3,
                  num_heads=8,
                  context_channels=(128, 256, 512),
@@ -264,6 +264,8 @@ class BiSeNetV1EXP(BaseModule):
         # stole refactoring code from Coin Cheung, thanks
         x_context8, x_context16 = self.context_path(x)
         x_spatial = self.spatial_path(x)
+        x_spatial = resize(
+            x_spatial, size=x_context8.shape[2:], mode='bilinear')
         x_fuse = self.ffm(x_spatial, x_context8)
 
         outs = [x_fuse, x_context8, x_context16]
