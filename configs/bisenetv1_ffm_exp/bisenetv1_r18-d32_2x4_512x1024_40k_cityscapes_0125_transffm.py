@@ -6,8 +6,12 @@ _base_ = [
 model = dict(
     backbone=dict(
         type='BiSeNetV1EXPCFG',
+<<<<<<< HEAD:configs/bisenetv1_ffm_exp/bisenetv1_r18-d32_2x4_512x1024_40k_cityscapes_0125_transffm.py
         spatial_path_cfg=dict(
             type='SpatialPath', norm_cfg=dict(type='BN')),
+=======
+        spatial_path_cfg=dict(type='SpatialPath', norm_cfg=dict(type='BN')),
+>>>>>>> e3453699815cb330918778110605a82af7970606:configs/bisenetv1_ffm_exp/bisenetv1_r18-d32_2x4_512x1024_40k_cityscapes_0125.py
         ffm_cfg=dict(
             type='TransformerDecoderFeatureFusionLayer',
             transformer_decoder_cfg=dict(

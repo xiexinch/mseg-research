@@ -242,9 +242,10 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
                 x_query = layer(x_query, x_key, x_value)
             else:
                 x_query = layer(x_query)
-        B, _, C = x_query.shape
-        out = x_query.reshape(B, hw_shape[0], hw_shape[1],
-                              C).permute(0, 3, 1, 2).contiguous()
+        x = self.norm(x_query)
+        B, _, C = x.shape
+        out = x.reshape(B, hw_shape[0], hw_shape[1],
+                        C).permute(0, 3, 1, 2).contiguous()
         out = self.conv(out)
         out = resize(out, scale_factor=2, mode='bilinear', align_corners=False)
         return out
