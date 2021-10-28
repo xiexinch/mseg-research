@@ -6,7 +6,7 @@ from mmcv.runner import BaseModule
 
 from mmseg.ops import resize
 from ..builder import BACKBONES, build_backbone
-from ..utils import TransformerSpatialPath
+from ..utils import build_spatial_path
 
 
 class AttentionRefinementModule(BaseModule):
@@ -193,7 +193,7 @@ class FeatureFusionModule(BaseModule):
 
 
 @BACKBONES.register_module()
-class BiSeNetV1EXP(BaseModule):
+class BiSeNetV1EXPCFG(BaseModule):
     """BiSeNetV1 backbone.
 
     This backbone is the implementation of `BiSeNet: Bilateral
@@ -223,12 +223,7 @@ class BiSeNetV1EXP(BaseModule):
 
     def __init__(self,
                  backbone_cfg,
-                 in_channels=3,
-                 spatial_channels=(64, 64, 64, 128),
-                 embed_dims=128,
-                 patch_embed_kernel=16,
-                 num_layers=3,
-                 num_heads=8,
+                 spatial_path_cfg,
                  context_channels=(128, 256, 512),
                  out_indices=(0, 1, 2),
                  align_corners=False,
@@ -236,11 +231,10 @@ class BiSeNetV1EXP(BaseModule):
                  conv_cfg=None,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  act_cfg=dict(type='ReLU'),
-                 init_cfg=None):
+                 init_cfg=None,
+                 **kwargs):
 
-        super(BiSeNetV1EXP, self).__init__(init_cfg=init_cfg)
-        assert len(spatial_channels) == 4, 'Length of input channels \
-                                           of Spatial Path must be 4!'
+        super(BiSeNetV1EXPCFG, self).__init__(init_cfg=init_cfg)
 
         assert len(context_channels) == 3, 'Length of input channels \
                                            of Context Path must be 3!'
@@ -249,12 +243,7 @@ class BiSeNetV1EXP(BaseModule):
         self.align_corners = align_corners
         self.context_path = ContextPath(backbone_cfg, context_channels,
                                         self.align_corners)
-        self.spatial_path = TransformerSpatialPath(
-            in_channels=in_channels,
-            embed_dims=embed_dims,
-            patch_embed_kernel=patch_embed_kernel,
-            num_layers=num_layers,
-            num_heads=num_heads)
+        self.spatial_path = build_spatial_path(spatial_path_cfg)
         self.ffm = FeatureFusionModule(context_channels[1], out_channels)
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
@@ -264,8 +253,6 @@ class BiSeNetV1EXP(BaseModule):
         # stole refactoring code from Coin Cheung, thanks
         x_context8, x_context16 = self.context_path(x)
         x_spatial = self.spatial_path(x)
-        x_spatial = resize(
-            x_spatial, size=x_context8.shape[2:], mode='bilinear')
         x_fuse = self.ffm(x_spatial, x_context8)
 
         outs = [x_fuse, x_context8, x_context16]
