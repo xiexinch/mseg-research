@@ -1,19 +1,27 @@
+import torch
+import torch.nn as nn
 from mmcv.cnn.bricks.norm import build_norm_layer
+from mmcv.cnn.bricks.transformer import build_transformer_layer
 from mmcv.runner import BaseModule, ModuleList
 from mmcv.cnn import ConvModule
 
 from mmseg.models.builder import MODELS
+from mmseg.ops.wrappers import resize
 from ..utils.embed import PatchMerging
 from ..utils import PatchEmbed
 from ..backbones.vit import TransformerEncoderLayer
 from ..backbones.swin import SwinBlock
-from ..builder import MODELS
 
 SPATIAL_PATH = MODELS
+FFM = MODELS
 
 
 def build_spatial_path(cfg):
     return SPATIAL_PATH.build(cfg)
+
+
+def build_ffm(cfg):
+    return FFM.build(cfg)
 
 
 @SPATIAL_PATH.register_module()
@@ -22,10 +30,7 @@ class ShiftWindowTransformerSpatialPath(BaseModule):
 
     def __init__(self,
                  patch_embed_cfg=dict(
-                     in_channels=3,
-                     embed_dims=96,
-                     kernel_size=4
-                 ),
+                     in_channels=3, embed_dims=96, kernel_size=4),
                  num_heads=3,
                  mlp_ratio=4,
                  attn_drop_rate=0.,
@@ -61,7 +66,8 @@ class ShiftWindowTransformerSpatialPath(BaseModule):
         else:
             self.downsample = None
         self.norm = build_norm_layer(
-            norm_cfg, self.embed_dims * 2 if final_downsample else self.embed_dims)[1]
+            norm_cfg,
+            self.embed_dims * 2 if final_downsample else self.embed_dims)[1]
 
     def forward(self, x):
         x, hw_shape = self.patch_embed(x)
@@ -190,3 +196,108 @@ class SpatialPath(BaseModule):
             layer_stage = getattr(self, layer_name)
             x = layer_stage(x)
         return x
+
+
+@FFM.register_module()
+class TransformerDecoderFeatureFusionLayer(BaseModule):
+    """Feature Fusion Module based on Transformer Decoder
+    """
+
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 in_channels=128,
+                 embed_dims=256,
+                 num_layers=2,
+                 patch_embed_kernel=2,
+                 norm_cfg=dict(type='LN'),
+                 init_cfg=None):
+        if init_cfg is None:
+            init_cfg = [
+                dict(type='Kaiming', layer='Conv2d'),
+                dict(
+                    type='Constant',
+                    val=1,
+                    layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
+            ]
+        super().__init__(init_cfg)
+        self.patch_embed_spatial = PatchEmbed(
+            in_channels, embed_dims, kernel_size=patch_embed_kernel)
+        self.patch_embed_context = PatchEmbed(
+            in_channels, embed_dims, kernel_size=patch_embed_kernel)
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+        self.norm = build_norm_layer(norm_cfg, embed_dims)[1]
+
+        self.conv = ConvModule(
+            embed_dims, embed_dims, kernel_size=3, padding=1, stride=1)
+
+    def forward(self, spatial_path, context_path):
+        x_spatial, _ = self.patch_embed_spatial(spatial_path)
+        x_context, hw_shape = self.patch_embed_context(context_path)
+        x_query, x_key, x_value = x_context, x_spatial, x_spatial
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x_query = layer(x_query, x_key, x_value)
+            else:
+                x_query = layer(x_query)
+        B, _, C = x_query.shape
+        out = x_query.reshape(B, hw_shape[0], hw_shape[1],
+                              C).permute(0, 3, 1, 2).contiguous()
+        out = self.conv(out)
+        out = resize(out, scale_factor=2, mode='bilinear', align_corners=False)
+        return out
+
+
+@FFM.register_module()
+class FeatureFusionModule(BaseModule):
+    """Feature Fusion Module to fuse low level output feature of Spatial Path
+    and high level output feature of Context Path.
+
+    Args:
+        in_channels (int): The number of input channels.
+        out_channels (int): The number of output channels.
+    Returns:
+        x_out (torch.Tensor): Feature map of Feature Fusion Module.
+    """
+
+    def __init__(self,
+                 in_channels,
+                 out_channels,
+                 conv_cfg=None,
+                 norm_cfg=dict(type='BN'),
+                 act_cfg=dict(type='ReLU'),
+                 init_cfg=None):
+        super(FeatureFusionModule, self).__init__(init_cfg=init_cfg)
+        self.conv1 = ConvModule(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            conv_cfg=conv_cfg,
+            norm_cfg=norm_cfg,
+            act_cfg=act_cfg)
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+        self.conv_atten = nn.Sequential(
+            ConvModule(
+                in_channels=out_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=False,
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg), nn.Sigmoid())
+
+    def forward(self, x_sp, x_cp):
+        x_concat = torch.cat([x_sp, x_cp], dim=1)
+        x_fuse = self.conv1(x_concat)
+        x_atten = self.gap(x_fuse)
+        # Note: No BN and more 1x1 conv in paper.
+        x_atten = self.conv_atten(x_atten)
+        x_atten = x_fuse * x_atten
+        x_out = x_atten + x_fuse
+        return x_out

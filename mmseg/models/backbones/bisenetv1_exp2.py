@@ -6,7 +6,7 @@ from mmcv.runner import BaseModule
 
 from mmseg.ops import resize
 from ..builder import BACKBONES, build_backbone
-from ..utils import build_spatial_path
+from ..utils import build_spatial_path, build_ffm
 
 
 class AttentionRefinementModule(BaseModule):
@@ -140,58 +140,6 @@ class ContextPath(BaseModule):
         return x_16_up, x_32_up
 
 
-class FeatureFusionModule(BaseModule):
-    """Feature Fusion Module to fuse low level output feature of Spatial Path
-    and high level output feature of Context Path.
-
-    Args:
-        in_channels (int): The number of input channels.
-        out_channels (int): The number of output channels.
-    Returns:
-        x_out (torch.Tensor): Feature map of Feature Fusion Module.
-    """
-
-    def __init__(self,
-                 in_channels,
-                 out_channels,
-                 conv_cfg=None,
-                 norm_cfg=dict(type='BN'),
-                 act_cfg=dict(type='ReLU'),
-                 init_cfg=None):
-        super(FeatureFusionModule, self).__init__(init_cfg=init_cfg)
-        self.conv1 = ConvModule(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=1,
-            stride=1,
-            padding=0,
-            conv_cfg=conv_cfg,
-            norm_cfg=norm_cfg,
-            act_cfg=act_cfg)
-        self.gap = nn.AdaptiveAvgPool2d((1, 1))
-        self.conv_atten = nn.Sequential(
-            ConvModule(
-                in_channels=out_channels,
-                out_channels=out_channels,
-                kernel_size=1,
-                stride=1,
-                padding=0,
-                bias=False,
-                conv_cfg=conv_cfg,
-                norm_cfg=norm_cfg,
-                act_cfg=act_cfg), nn.Sigmoid())
-
-    def forward(self, x_sp, x_cp):
-        x_concat = torch.cat([x_sp, x_cp], dim=1)
-        x_fuse = self.conv1(x_concat)
-        x_atten = self.gap(x_fuse)
-        # Note: No BN and more 1x1 conv in paper.
-        x_atten = self.conv_atten(x_atten)
-        x_atten = x_fuse * x_atten
-        x_out = x_atten + x_fuse
-        return x_out
-
-
 @BACKBONES.register_module()
 class BiSeNetV1EXPCFG(BaseModule):
     """BiSeNetV1 backbone.
@@ -224,10 +172,10 @@ class BiSeNetV1EXPCFG(BaseModule):
     def __init__(self,
                  backbone_cfg,
                  spatial_path_cfg,
+                 ffm_cfg,
                  context_channels=(128, 256, 512),
                  out_indices=(0, 1, 2),
                  align_corners=False,
-                 out_channels=256,
                  conv_cfg=None,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  act_cfg=dict(type='ReLU'),
@@ -244,7 +192,7 @@ class BiSeNetV1EXPCFG(BaseModule):
         self.context_path = ContextPath(backbone_cfg, context_channels,
                                         self.align_corners)
         self.spatial_path = build_spatial_path(spatial_path_cfg)
-        self.ffm = FeatureFusionModule(context_channels[1], out_channels)
+        self.ffm = build_ffm(ffm_cfg)
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.act_cfg = act_cfg
