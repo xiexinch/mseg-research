@@ -231,7 +231,8 @@ class BiSeNetV1EXPCFG(BaseModule):
                  conv_cfg=None,
                  norm_cfg=dict(type='BN', requires_grad=True),
                  act_cfg=dict(type='ReLU'),
-                 init_cfg=None):
+                 init_cfg=None,
+                 **kwargs):
 
         super(BiSeNetV1EXPCFG, self).__init__(init_cfg=init_cfg)
 
