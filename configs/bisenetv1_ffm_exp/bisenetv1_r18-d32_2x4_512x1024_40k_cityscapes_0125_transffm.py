@@ -7,7 +7,7 @@ model = dict(
     backbone=dict(
         type='BiSeNetV1EXPCFG',
         spatial_path_cfg=dict(
-            type='SpatialPath', norm_cfg=dict(type='SyncBN')),
+            type='SpatialPath', norm_cfg=dict(type='BN')),
         ffm_cfg=dict(
             type='TransformerDecoderFeatureFusionLayer',
             transformer_decoder_cfg=dict(
