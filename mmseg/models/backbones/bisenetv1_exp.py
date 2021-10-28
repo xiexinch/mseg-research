@@ -246,7 +246,7 @@ class BiSeNetV1EXP(BaseModule):
         self.context_path = ContextPath(backbone_cfg, context_channels,
                                         self.align_corners)
         self.spatial_path = TransformerSpatialPath(
-            in_channels=in_channels, patch_embed_kernel=8)
+            in_channels=in_channels, patch_embed_kernel=16)
         self.ffm = FeatureFusionModule(context_channels[1], out_channels)
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
@@ -256,6 +256,8 @@ class BiSeNetV1EXP(BaseModule):
         # stole refactoring code from Coin Cheung, thanks
         x_context8, x_context16 = self.context_path(x)
         x_spatial = self.spatial_path(x)
+        x_spatial = resize(
+            x_spatial, size=x_context8.shape[2:], mode='bilinear')
         x_fuse = self.ffm(x_spatial, x_context8)
 
         outs = [x_fuse, x_context8, x_context16]

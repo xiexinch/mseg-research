@@ -53,5 +53,4 @@ data = dict(
         data_root=data_root,
         img_dir='leftImg8bit/val',
         ann_dir='gtFine/val',
-        pipeline=test_pipeline,
-        ratio=0.125))
+        pipeline=test_pipeline))
