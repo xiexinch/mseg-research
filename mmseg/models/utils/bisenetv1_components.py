@@ -236,10 +236,9 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
     def forward(self, spatial_path, context_path):
         x_spatial, _ = self.patch_embed_spatial(spatial_path)
         x_context, hw_shape = self.patch_embed_context(context_path)
-        x_query, x_key, x_value = x_context, x_spatial, x_spatial
         for i, layer in enumerate(self.layers):
             if i == 0:
-                x_query = layer(x_query, x_key, x_value)
+                x_query = layer(x_context, x_spatial, x_spatial)
             else:
                 x_query = layer(x_query)
         x = self.norm(x_query)
