@@ -22,7 +22,12 @@ model = dict(
             drop_path_rate=0.,
             norm_cfg=dict(type='LN'),
             act_cfg=dict(type='GELU'),
-            final_downsample=True)))
+            final_downsample=True),
+        ffm_cfg=dict(
+            type='FeatureFusionModule',
+            in_channels=256,
+            out_channels=256
+        )))
 
 lr_config = dict(warmup='linear', warmup_iters=1000)
 optimizer = dict(lr=0.025)
