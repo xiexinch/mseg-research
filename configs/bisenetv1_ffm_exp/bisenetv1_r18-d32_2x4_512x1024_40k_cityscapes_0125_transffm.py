@@ -18,8 +18,8 @@ model = dict(
                     attn_drop=0.1),
                 feedforward_channels=512,  # need ablation study
                 ffn_dropout=0.1,
-                #operation_order=('self_attn', 'norm', 'cross_attn', 'norm', 'ffn', 'norm') detr
-                operation_order=('self_attn', 'norm', 'ffn', 'norm')),
+                operation_order=('self_attn', 'norm', 'cross_attn', 'norm', 'ffn', 'norm')),
+                #operation_order=('self_attn', 'norm', 'ffn', 'norm')),
             in_channels=128,
             embed_dims=256)))
 
