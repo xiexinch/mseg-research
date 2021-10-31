@@ -77,9 +77,9 @@ class ShiftWindowTransformerSpatialPath(BaseModule):
             x, hw_shape = self.downsample(x, hw_shape)
 
         x = self.norm(x)
-        B, _, C = x.shape
-        x = x.reshape(B, hw_shape[0], hw_shape[1], C).permute(0, 3, 1,
-                                                              2).contiguous()
+        # B, _, C = x.shape
+        # x = x.reshape(B, hw_shape[0], hw_shape[1], C).permute(0, 3, 1,
+        #                                                       2).contiguous()
         return x
 
 
@@ -118,9 +118,9 @@ class TransformerSpatialPath(BaseModule):
         for layer in self.layers:
             x = layer(x)
         x = self.norm(x)
-        B, _, C = x.shape
-        x = x.reshape(B, hw_shape[0], hw_shape[1], C).permute(0, 3, 1,
-                                                              2).contiguous()
+        # B, _, C = x.shape
+        # x = x.reshape(B, hw_shape[0], hw_shape[1], C).permute(0, 3, 1,
+        #                                                       2).contiguous()
         return x
 
 
@@ -205,10 +205,13 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
 
     def __init__(self,
                  transformer_decoder_cfg,
-                 in_channels=128,
+                 spatial_channels=64,
+                 context_channels=128,
                  embed_dims=256,
                  num_layers=2,
                  patch_embed_kernel=2,
+                 patch_merge_kernel=4,
+                 vector_spatial=False,
                  norm_cfg=dict(type='LN'),
                  init_cfg=None):
         if init_cfg is None:
@@ -220,10 +223,18 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
                     layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
             ]
         super().__init__(init_cfg)
-        self.patch_embed_spatial = PatchEmbed(
-            in_channels, embed_dims, kernel_size=patch_embed_kernel)
+        self.vector_spatial = vector_spatial
+        if not self.vector_spatial:
+            self.patch_embed_spatial = PatchEmbed(
+                spatial_channels, embed_dims, kernel_size=patch_embed_kernel)
+        # else:
+        #     self.patch_merging_spatil = PatchMerging(
+        #         spatial_channels, embed_dims, patch_merge_kernel)
+        else:
+            self.spatial_linear_embeding = nn.Linear(128, 256)
+
         self.patch_embed_context = PatchEmbed(
-            in_channels, embed_dims, kernel_size=patch_embed_kernel)
+            context_channels, embed_dims, kernel_size=patch_embed_kernel)
         self.layers = ModuleList()
         for _ in range(num_layers):
             layer = build_transformer_layer(transformer_decoder_cfg)
@@ -234,7 +245,14 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
             embed_dims, embed_dims, kernel_size=3, padding=1, stride=1)
 
     def forward(self, spatial_path, context_path):
-        x_spatial, _ = self.patch_embed_spatial(spatial_path)
+        if not self.vector_spatial:
+            x_spatial, _ = self.patch_embed_spatial(spatial_path)
+        else:
+            # shape_ = context_path.shape[2:]
+            # shape_ = [l * 2 for l in shape_]
+            # x_spatial, _ = self.patch_merging_spatil(
+            #     spatial_path, shape_)
+            x_spatial = self.spatial_linear_embeding(spatial_path)
         x_context, hw_shape = self.patch_embed_context(context_path)
         for i, layer in enumerate(self.layers):
             if i == 0:
