@@ -11,9 +11,9 @@ model = dict(
             patch_embed_cfg=dict(
                 in_channels=3,
                 embed_dims=64,
-                kernel_size=2,
+                kernel_size=4,
             ),
-            num_heads=4,
+            num_heads=8,
             mlp_ratio=4,
             attn_drop_rate=0.,
             drop_path_rate=0.,
@@ -37,7 +37,7 @@ model = dict(
             spatial_channels=64,
             context_channels=128,
             embed_dims=256,
-            patch_embed_kernel=1,
+            patch_embed_kernel=2,
             vector_spatial=True)))
 
 lr_config = dict(warmup='linear', warmup_iters=1000)
