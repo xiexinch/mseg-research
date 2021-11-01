@@ -198,6 +198,97 @@ class SpatialPath(BaseModule):
         return x
 
 
+@SPATIAL_PATH.register_module()
+class DetailBranch(BaseModule):
+    """Detail Branch with wide channels and shallow layers to capture low-level
+    details and generate high-resolution feature representation.
+
+    Args:
+        detail_channels (Tuple[int]): Size of channel numbers of each stage
+            in Detail Branch, in paper it has 3 stages.
+            Default: (64, 64, 128).
+        in_channels (int): Number of channels of input image. Default: 3.
+        conv_cfg (dict | None): Config of conv layers.
+            Default: None.
+        norm_cfg (dict | None): Config of norm layers.
+            Default: dict(type='BN').
+        act_cfg (dict): Config of activation layers.
+            Default: dict(type='ReLU').
+        init_cfg (dict or list[dict], optional): Initialization config dict.
+            Default: None.
+    Returns:
+        x (torch.Tensor): Feature map of Detail Branch.
+    """
+
+    def __init__(self,
+                 detail_channels=(64, 64, 128),
+                 in_channels=3,
+                 conv_cfg=None,
+                 norm_cfg=dict(type='BN'),
+                 act_cfg=dict(type='ReLU'),
+                 init_cfg=None):
+        super(DetailBranch, self).__init__(init_cfg=init_cfg)
+        detail_branch = []
+        for i in range(len(detail_channels)):
+            if i == 0:
+                detail_branch.append(
+                    nn.Sequential(
+                        ConvModule(
+                            in_channels=in_channels,
+                            out_channels=detail_channels[i],
+                            kernel_size=3,
+                            stride=2,
+                            padding=1,
+                            conv_cfg=conv_cfg,
+                            norm_cfg=norm_cfg,
+                            act_cfg=act_cfg),
+                        ConvModule(
+                            in_channels=detail_channels[i],
+                            out_channels=detail_channels[i],
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            conv_cfg=conv_cfg,
+                            norm_cfg=norm_cfg,
+                            act_cfg=act_cfg)))
+            else:
+                detail_branch.append(
+                    nn.Sequential(
+                        ConvModule(
+                            in_channels=detail_channels[i - 1],
+                            out_channels=detail_channels[i],
+                            kernel_size=3,
+                            stride=2,
+                            padding=1,
+                            conv_cfg=conv_cfg,
+                            norm_cfg=norm_cfg,
+                            act_cfg=act_cfg),
+                        ConvModule(
+                            in_channels=detail_channels[i],
+                            out_channels=detail_channels[i],
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            conv_cfg=conv_cfg,
+                            norm_cfg=norm_cfg,
+                            act_cfg=act_cfg),
+                        ConvModule(
+                            in_channels=detail_channels[i],
+                            out_channels=detail_channels[i],
+                            kernel_size=3,
+                            stride=1,
+                            padding=1,
+                            conv_cfg=conv_cfg,
+                            norm_cfg=norm_cfg,
+                            act_cfg=act_cfg)))
+        self.detail_branch = nn.ModuleList(detail_branch)
+
+    def forward(self, x):
+        for stage in self.detail_branch:
+            x = stage(x)
+        return x
+
+
 @FFM.register_module()
 class TransformerDecoderFeatureFusionLayer(BaseModule):
     """Feature Fusion Module based on Transformer Decoder
