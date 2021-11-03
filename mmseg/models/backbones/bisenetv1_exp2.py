@@ -15,6 +15,7 @@ class BiSeNetV1EXPCFG(BaseModule):
                  spatial_path_cfg,
                  ffm_cfg,
                  init_cfg=None,
+                 out_indices=(0, 1, 2),
                  **kwargs):
 
         super(BiSeNetV1EXPCFG, self).__init__(init_cfg)
@@ -22,13 +23,16 @@ class BiSeNetV1EXPCFG(BaseModule):
         self.context_path = build_context_path(context_path_cfg)
         self.spatial_path = build_spatial_path(spatial_path_cfg)
         self.ffm = build_ffm(ffm_cfg)
+        self.out_indices = out_indices
 
     def forward(self, x):
         # stole refactoring code from Coin Cheung, thanks
-        x_8, x_16, x_32 = self.context_path(x)
+        # x_8, x_16, x_32 = self.context_path(x)
+        x_16, x_32 = self.context_path(x)
+
         x_spatial = self.spatial_path(x)
         x_fuse = self.ffm(x_spatial, x_32)
-
-        outs = [x_fuse, x_8, x_16]
-        outs = [outs[i] for i in self.out_indices]
+        outs = [x_fuse, x_16]
+        print(x_fuse.shape, x_16.shape)
+        # outs = [outs[i] for i in self.out_indices]
         return tuple(outs)

@@ -404,7 +404,6 @@ class CPMapSPVecFFM(BaseModule):
 
     def forward(self, spatial_path, context_path):
         x_context, hw_shape = self.patch_embed(context_path)
-        print(spatial_path.shape, x_context.shape, hw_shape)
         for i, layer in enumerate(self.layers):
             if i == 0:
                 x = layer(spatial_path, x_context, x_context)
