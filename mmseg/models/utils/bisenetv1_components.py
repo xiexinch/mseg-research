@@ -1,4 +1,5 @@
 import torch
+from torch.cuda import init
 import torch.nn as nn
 from mmcv.cnn.bricks.norm import build_norm_layer
 from mmcv.cnn.bricks.transformer import build_transformer_layer
@@ -8,9 +9,10 @@ from mmcv.cnn import ConvModule
 from mmseg.models.builder import MODELS, build_backbone
 from mmseg.ops.wrappers import resize
 from ..utils.embed import PatchMerging
-from ..utils import PatchEmbed
+from ..utils import PatchEmbed, nlc_to_nchw
 from ..backbones.vit import TransformerEncoderLayer
 from ..backbones.swin import SwinBlock
+from ..backbones.mit import TransformerEncoderLayer as MiTTransformerLayer
 
 CONTEXT_PATH = MODELS
 SPATIAL_PATH = MODELS
@@ -27,6 +29,83 @@ def build_spatial_path(cfg):
 
 def build_ffm(cfg):
     return FFM.build(cfg)
+
+
+@SPATIAL_PATH.register_module()
+class MiTSpatialPath(BaseModule):
+    """First stage of MixVisionTransformer
+    """
+
+    def __init__(self,
+                 embed_dims=64,
+                 out_channels=128,
+                 num_layers=3,
+                 num_heads=1,
+                 patch_size=7,
+                 stride=4,
+                 sr_ratio=8,
+                 mlp_ratio=4,
+                 qkv_bias=True,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.,
+                 act_cfg=dict(type='GELU'),
+                 norm_cfg=dict(type='LN', eps=1e-6),
+                 final_dowsample=True,
+                 final_attn=False,
+                 init_cfg=None):
+        super(MiTSpatialPath, self).__init__(init_cfg)
+        self.patch_embed = PatchEmbed(
+            in_channels=3,
+            embed_dims=embed_dims,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=patch_size // 2,
+            norm_cfg=norm_cfg)
+
+        dpr = torch.linspace(0, drop_path_rate, num_layers)
+        self.layers = ModuleList()
+        for i in range(num_layers):
+            layer = MiTTransformerLayer(
+                embed_dims=embed_dims,
+                num_heads=num_heads,
+                feedforward_channels=mlp_ratio * embed_dims,
+                drop_rate=drop_rate,
+                attn_drop_rate=attn_drop_rate,
+                drop_path_rate=dpr[i],
+                qkv_bias=qkv_bias,
+                act_cfg=act_cfg,
+                norm_cfg=norm_cfg,
+                sr_ratio=sr_ratio)
+            self.layers.append(layer)
+
+        self.final_downsample = final_dowsample
+        self.final_attn = final_attn
+        if self.final_downsample:
+            # dowsample 2x
+            self.downsample = PatchMerging(embed_dims, out_channels)
+            if final_attn:
+                self.final_attn = MiTTransformerLayer(
+                    embed_dims=out_channels,
+                    num_heads=2,
+                    feedforward_channels=mlp_ratio * out_channels,
+                    drop_rate=drop_rate,
+                    attn_drop_rate=attn_drop_rate,
+                    drop_path_rate=drop_path_rate,
+                    qkv_bias=qkv_bias,
+                    act_cfg=act_cfg,
+                    norm_cfg=norm_cfg,
+                    sr_ratio=sr_ratio // 2)
+
+    def forward(self, x):
+        x, hw_shape = self.patch_embed(x)
+        for layer in self.layers:
+            x = layer(x, hw_shape)
+        if self.final_downsample:
+            x, hw_shape = self.downsample(x, hw_shape)
+            if self.final_attn:
+                x = self.final_attn(x, hw_shape)
+        return x
 
 
 @SPATIAL_PATH.register_module()
@@ -293,6 +372,45 @@ class DetailBranch(BaseModule):
         for stage in self.detail_branch:
             x = stage(x)
         return x
+
+
+@FFM.register_module()
+class CPMapSPVecFFM(BaseModule):
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 in_channels=128,
+                 embed_dims=256,
+                 num_layers=1,
+                 patch_size=1,
+                 stride=None,
+                 padding='corner',
+                 cp_up_rate=4,
+                 init_cfg=None):
+        super().__init__(init_cfg)
+        # patch embed for context path feature
+        self.patch_embed = PatchEmbed(
+            in_channels,
+            embed_dims,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=padding)
+
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+
+        self.cp_up_rate = cp_up_rate
+
+    def forward(self, spatial_path, context_path):
+        x_context, hw_shape = self.patch_embed(context_path)
+        print(spatial_path.shape, x_context.shape, hw_shape)
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x = layer(spatial_path, x_context, x_context)
+            else:
+                x = layer(x)
+        return nlc_to_nchw(x, [i * self.cp_up_rate for i in hw_shape])
 
 
 @FFM.register_module()
