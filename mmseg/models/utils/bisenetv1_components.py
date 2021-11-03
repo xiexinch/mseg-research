@@ -5,15 +5,20 @@ from mmcv.cnn.bricks.transformer import build_transformer_layer
 from mmcv.runner import BaseModule, ModuleList
 from mmcv.cnn import ConvModule
 
-from mmseg.models.builder import MODELS
+from mmseg.models.builder import MODELS, build_backbone
 from mmseg.ops.wrappers import resize
 from ..utils.embed import PatchMerging
 from ..utils import PatchEmbed
 from ..backbones.vit import TransformerEncoderLayer
 from ..backbones.swin import SwinBlock
 
+CONTEXT_PATH = MODELS
 SPATIAL_PATH = MODELS
 FFM = MODELS
+
+
+def build_context_path(cfg):
+    return CONTEXT_PATH.build(cfg)
 
 
 def build_spatial_path(cfg):
@@ -47,6 +52,7 @@ class ShiftWindowTransformerSpatialPath(BaseModule):
         self.mlp_ratio = mlp_ratio
         feedforward_channels = self.embed_dims * self.mlp_ratio
         self.blocks = ModuleList()
+        # TODO segformer
         for i in range(2):
             block = SwinBlock(
                 embed_dims=self.embed_dims,
@@ -391,4 +397,195 @@ class FeatureFusionModule(BaseModule):
         x_atten = self.conv_atten(x_atten)
         x_atten = x_fuse * x_atten
         x_out = x_atten + x_fuse
+        return x_out
+
+
+@FFM.register_module()
+class BaseTransformerDecoder(BaseModule):
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 context_in_channels,
+                 spatial_in_channels,
+                 embed_dims,
+                 spatial_dw_rate,
+                 context_dw_rate,
+                 num_layers=1,
+                 init_cfg=None):
+        super(BaseTransformerDecoder, self).__init__(init_cfg)
+        # query
+        self.spatial_patch_embed = PatchEmbed(
+            spatial_in_channels,
+            embed_dims,
+            kernel_size=spatial_dw_rate
+        )
+        # key, value
+        self.context_patch_embed = PatchEmbed(
+            context_in_channels,
+            embed_dims,
+            kernel_size=context_dw_rate
+        )
+
+        # TransformerDecoderLayer
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+
+    def forward(self, spatial_path, context_path):
+        x_spatial, hw_shape = self.spatial_patch_embed(spatial_path)
+        x_context, _ = self.context_patch_embed(context_path)
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x_query = layer(x_spatial, x_context, x_context)
+            else:
+                x_query = layer(x_query)
+
+        # reshape
+        B, _, C = x_query.shape
+        out = x_query.reshape(B, hw_shape[0], hw_shape[1], C).permute(
+            0, 3, 1, 2).contiguous()
+        return out
+
+
+@CONTEXT_PATH.register_module()
+class SimpleContextPath(BaseModule):
+    def __init__(self,
+                 backbone_cfg,
+                 init_cfg=None):
+        super(SimpleContextPath, self).__init__(init_cfg)
+        self.backbone = build_backbone(backbone_cfg)
+
+    def forward(self, x):
+        return self.backbone(x)
+
+
+@CONTEXT_PATH.register_module()
+class ContextPath(BaseModule):
+    """Context Path to provide sufficient receptive field.
+
+    Args:
+        backbone_cfg:(dict): Config of backbone of
+            Context Path.
+        context_channels (Tuple[int]): The number of channel numbers
+            of various modules in Context Path.
+            Default: (128, 256, 512).
+        align_corners (bool, optional): The align_corners argument of
+            resize operation. Default: False.
+    Returns:
+        x_16_up, x_32_up (torch.Tensor, torch.Tensor): Two feature maps
+            undergoing upsampling from 1/16 and 1/32 downsampling
+            feature maps. These two feature maps are used for Feature
+            Fusion Module and Auxiliary Head.
+    """
+
+    def __init__(self,
+                 backbone_cfg,
+                 context_channels=(128, 256, 512),
+                 align_corners=False,
+                 conv_cfg=None,
+                 norm_cfg=dict(type='BN'),
+                 act_cfg=dict(type='ReLU'),
+                 init_cfg=None):
+        super(ContextPath, self).__init__(init_cfg=init_cfg)
+        assert len(context_channels) == 3, 'Length of input channels \
+                                           of Context Path must be 3!'
+
+        self.backbone = build_backbone(backbone_cfg)
+        if hasattr(self.backbone, 'train'):
+            self.backbone.train()
+
+        self.align_corners = align_corners
+        self.arm16 = AttentionRefinementModule(context_channels[1],
+                                               context_channels[0])
+        self.arm32 = AttentionRefinementModule(context_channels[2],
+                                               context_channels[0])
+        self.conv_head32 = ConvModule(
+            in_channels=context_channels[0],
+            out_channels=context_channels[0],
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            conv_cfg=conv_cfg,
+            norm_cfg=norm_cfg,
+            act_cfg=act_cfg)
+        self.conv_head16 = ConvModule(
+            in_channels=context_channels[0],
+            out_channels=context_channels[0],
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            conv_cfg=conv_cfg,
+            norm_cfg=norm_cfg,
+            act_cfg=act_cfg)
+        self.gap_conv = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            ConvModule(
+                in_channels=context_channels[2],
+                out_channels=context_channels[0],
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg))
+
+    def forward(self, x):
+        x_4, x_8, x_16, x_32 = self.backbone(x)
+        x_gap = self.gap_conv(x_32)
+
+        x_32_arm = self.arm32(x_32)
+        x_32_sum = x_32_arm + x_gap
+        x_32_up = resize(input=x_32_sum, size=x_16.shape[2:], mode='nearest')
+        x_32_up = self.conv_head32(x_32_up)
+
+        x_16_arm = self.arm16(x_16)
+        x_16_sum = x_16_arm + x_32_up
+        x_16_up = resize(input=x_16_sum, size=x_8.shape[2:], mode='nearest')
+        x_16_up = self.conv_head16(x_16_up)
+
+        return x_16_up, x_32_up
+
+
+class AttentionRefinementModule(BaseModule):
+    """Attention Refinement Module (ARM) to refine the features of each stage.
+
+    Args:
+        in_channels (int): The number of input channels.
+        out_channels (int): The number of output channels.
+    Returns:
+        x_out (torch.Tensor): Feature map of Attention Refinement Module.
+    """
+
+    def __init__(self,
+                 in_channels,
+                 out_channel,
+                 conv_cfg=None,
+                 norm_cfg=dict(type='BN'),
+                 act_cfg=dict(type='ReLU'),
+                 init_cfg=None):
+        super(AttentionRefinementModule, self).__init__(init_cfg=init_cfg)
+        self.conv_layer = ConvModule(
+            in_channels=in_channels,
+            out_channels=out_channel,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            conv_cfg=conv_cfg,
+            norm_cfg=norm_cfg,
+            act_cfg=act_cfg)
+        self.atten_conv_layer = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            ConvModule(
+                in_channels=out_channel,
+                out_channels=out_channel,
+                kernel_size=1,
+                bias=False,
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=None), nn.Sigmoid())
+
+    def forward(self, x):
+        x = self.conv_layer(x)
+        x_atten = self.atten_conv_layer(x)
+        x_out = x * x_atten
         return x_out
