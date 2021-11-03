@@ -376,6 +376,7 @@ class DetailBranch(BaseModule):
 
 @FFM.register_module()
 class CPMapSPVecFFM(BaseModule):
+
     def __init__(self,
                  transformer_decoder_cfg,
                  in_channels=128,
@@ -519,6 +520,7 @@ class FeatureFusionModule(BaseModule):
 
 @FFM.register_module()
 class BaseTransformerDecoder(BaseModule):
+
     def __init__(self,
                  transformer_decoder_cfg,
                  context_in_channels,
@@ -531,16 +533,10 @@ class BaseTransformerDecoder(BaseModule):
         super(BaseTransformerDecoder, self).__init__(init_cfg)
         # query
         self.spatial_patch_embed = PatchEmbed(
-            spatial_in_channels,
-            embed_dims,
-            kernel_size=spatial_dw_rate
-        )
+            spatial_in_channels, embed_dims, kernel_size=spatial_dw_rate)
         # key, value
         self.context_patch_embed = PatchEmbed(
-            context_in_channels,
-            embed_dims,
-            kernel_size=context_dw_rate
-        )
+            context_in_channels, embed_dims, kernel_size=context_dw_rate)
 
         # TransformerDecoderLayer
         self.layers = ModuleList()
@@ -559,16 +555,15 @@ class BaseTransformerDecoder(BaseModule):
 
         # reshape
         B, _, C = x_query.shape
-        out = x_query.reshape(B, hw_shape[0], hw_shape[1], C).permute(
-            0, 3, 1, 2).contiguous()
+        out = x_query.reshape(B, hw_shape[0], hw_shape[1],
+                              C).permute(0, 3, 1, 2).contiguous()
         return out
 
 
 @CONTEXT_PATH.register_module()
 class SimpleContextPath(BaseModule):
-    def __init__(self,
-                 backbone_cfg,
-                 init_cfg=None):
+
+    def __init__(self, backbone_cfg, init_cfg=None):
         super(SimpleContextPath, self).__init__(init_cfg)
         self.backbone = build_backbone(backbone_cfg)
 
