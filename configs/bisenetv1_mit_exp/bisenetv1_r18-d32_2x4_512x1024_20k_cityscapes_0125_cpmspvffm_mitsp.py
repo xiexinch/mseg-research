@@ -6,6 +6,6 @@ _base_ = [
 lr_config = dict(warmup='linear', warmup_iters=1000)
 optimizer = dict(lr=0.025)
 data = dict(
-    samples_per_gpu=2,
+    samples_per_gpu=4,
     workers_per_gpu=4,
 )

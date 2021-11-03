@@ -34,7 +34,7 @@ model = dict(
             drop_path_rate=0.,
             act_cfg=dict(type='GELU'),
             norm_cfg=dict(type='LN', eps=1e-6),
-            final_dowsample=False,
+            final_dowsample=True,
             final_attn=False),
         ffm_cfg=dict(
             type='CPMapSPVecFFM',
@@ -61,7 +61,7 @@ model = dict(
             patch_size=1,
             stride=None,
             padding='corner',
-            cp_up_rate=4),
+            cp_up_rate=2),
         out_indices=(0, 2)),
     decode_head=dict(
         type='FCNHead',
