@@ -4,7 +4,7 @@ import torch.nn as nn
 from mmcv.cnn.bricks.norm import build_norm_layer
 from mmcv.cnn.bricks.transformer import build_transformer_layer
 from mmcv.runner import BaseModule, ModuleList
-from mmcv.cnn import ConvModule
+from mmcv.cnn import ConvModule, Linear
 
 from mmseg.models.builder import MODELS, build_backbone
 from mmseg.ops.wrappers import resize
@@ -96,6 +96,8 @@ class MiTSpatialPath(BaseModule):
                     act_cfg=act_cfg,
                     norm_cfg=norm_cfg,
                     sr_ratio=sr_ratio // 2)
+        else:
+            self.project = Linear(embed_dims, out_channels)
 
     def forward(self, x):
         x, hw_shape = self.patch_embed(x)
@@ -105,6 +107,8 @@ class MiTSpatialPath(BaseModule):
             x, hw_shape = self.downsample(x, hw_shape)
             if self.final_attn:
                 x = self.final_attn(x, hw_shape)
+        else:
+            x = self.project(x)
         return x
 
 

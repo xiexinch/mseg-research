@@ -29,7 +29,7 @@ class TIMMBackbone(BaseModule):
         self,
         model_name,
         features_only=True,
-        pretrained=True,
+        pretrained=False,
         checkpoint_path='',
         in_channels=3,
         init_cfg=None,
