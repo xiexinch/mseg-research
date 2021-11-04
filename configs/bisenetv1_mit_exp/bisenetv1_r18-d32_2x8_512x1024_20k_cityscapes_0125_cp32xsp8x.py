@@ -1,7 +1,9 @@
-# model settings
-norm_cfg = dict(type='SyncBN', requires_grad=True)
+_base_ = [
+    '../_base_/models/bisenetv1_cfg.py', './cityscapes_0125.py',
+    '../_base_/default_runtime.py', '../_base_/schedules/schedule_20k.py'
+]
+
 model = dict(
-    type='EncoderDecoder',
     backbone=dict(
         type='BiSeNetV1EXPCFG',
         context_path_cfg=dict(
@@ -10,17 +12,18 @@ model = dict(
                 type='ResNet',
                 in_channels=3,
                 depth=18,
+                stem_channels=16,
+                base_channels=16,
                 num_stages=4,
                 out_indices=[2, 3],
                 dilations=(1, 1, 1, 1),
                 strides=(1, 2, 2, 2),
-                norm_cfg=norm_cfg,
                 norm_eval=False,
                 style='pytorch',
                 contract_dilation=True)),
         spatial_path_cfg=dict(
             type='MiTSpatialPath',
-            embed_dims=128,
+            embed_dims=64,
             out_channels=128,
             num_layers=2,
             num_heads=4,
@@ -55,52 +58,19 @@ model = dict(
                 operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                  'ffn', 'norm'),
                 batch_first=True),
-            in_channels=512,
+            in_channels=128,
             embed_dims=128,
             num_layers=2,
-            patch_size=1,
-            stride=None,
+            patch_size=3,
+            stride=1,
             padding='corner',
             cp_up_rate=2),
-        out_indices=(0, 2)),
-    decode_head=dict(
-        type='FCNHead',
-        in_channels=128,
-        in_index=0,
-        channels=128,
-        num_convs=1,
-        concat_input=False,
-        dropout_ratio=0.1,
-        num_classes=19,
-        norm_cfg=norm_cfg,
-        align_corners=False,
-        loss_decode=dict(
-            type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0)),
-    auxiliary_head=dict(
-            type='FCNHead',
-            in_channels=64,
-            channels=64,
-            num_convs=1,
-            num_classes=19,
-            in_index=1,
-            norm_cfg=norm_cfg,
-            concat_input=False,
-            align_corners=False,
-            loss_decode=dict(
-                type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0)),
-#         dict(
-#             type='FCNHead',
-#             in_channels=256,
-#             channels=64,
-#             num_convs=1,
-#             num_classes=19,
-#             in_index=1,
-#             norm_cfg=norm_cfg,
-#             concat_input=False,
-#             align_corners=False,
-#             loss_decode=dict(
-#                 type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0)),
-#     ],
-    # model training and testing settings
-    train_cfg=dict(),
-    test_cfg=dict(mode='whole'))
+        out_indices=(0, 2))
+)
+
+lr_config = dict(warmup='linear', warmup_iters=1000)
+optimizer = dict(lr=0.025)
+data = dict(
+    samples_per_gpu=8,
+    workers_per_gpu=4,
+)
