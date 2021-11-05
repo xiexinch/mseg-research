@@ -1,5 +1,4 @@
 import torch
-from torch.cuda import init
 import torch.nn as nn
 from mmcv.cnn.bricks.norm import build_norm_layer
 from mmcv.cnn.bricks.transformer import build_transformer_layer

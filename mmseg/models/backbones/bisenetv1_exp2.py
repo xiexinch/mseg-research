@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmcv.runner import BaseModule
 
-from ..builder import BACKBONES
+from ..builder import BACKBONES, build_backbone
 from ..utils import build_spatial_path, build_ffm, build_context_path
 
 
@@ -35,3 +35,27 @@ class BiSeNetV1EXPCFG(BaseModule):
         outs = [x_fuse, x_16]
         # outs = [outs[i] for i in self.out_indices]
         return tuple(outs)
+
+
+@BACKBONES.register_module()
+class BiSeNetSWCFG(BaseModule):
+    """BiSeNetV1 backbone.
+    """
+
+    def __init__(self,
+                 backbone_cfg,
+                 ffm_cfg,
+                 init_cfg=None,
+                 out_indices=(0, 1, 2),
+                 **kwargs):
+
+        super(BiSeNetSWCFG, self).__init__(init_cfg)
+
+        self.backbone = build_backbone(backbone_cfg)
+
+        self.ffm = build_ffm(ffm_cfg)
+        self.out_indices = out_indices
+
+    def forward(self, x):
+
+        return None
