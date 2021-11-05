@@ -1,6 +1,6 @@
 _base_ = [
     '../_base_/models/bisenetv1_cfg.py', './cityscapes_0125.py',
-    '../_base_/default_runtime.py', '../_base_/schedules/schedule_20k.py'
+    '../_base_/default_runtime.py', '../_base_/schedules/schedule_40k.py'
 ]
 
 model = dict(
