@@ -57,5 +57,6 @@ class BiSeNetSWCFG(BaseModule):
         self.out_indices = out_indices
 
     def forward(self, x):
-
-        return None
+        x_8, x_32 = self.backbone(x)
+        x_fuse = self.ffm(x_8, x_32)
+        return [x_8, x_32, x_fuse]

@@ -1,11 +1,14 @@
+from mmcv.cnn.bricks import conv
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmcv.cnn.bricks.norm import build_norm_layer
 from mmcv.cnn.bricks.transformer import build_transformer_layer
 from mmcv.runner import BaseModule, ModuleList
 from mmcv.cnn import ConvModule, Linear
 
 from mmseg.models.builder import MODELS, build_backbone
+from mmseg.models.utils.shape_convert import nchw_to_nlc
 from mmseg.ops.wrappers import resize
 from ..utils.embed import PatchMerging
 from ..utils import PatchEmbed, nlc_to_nchw
@@ -374,6 +377,59 @@ class DetailBranch(BaseModule):
     def forward(self, x):
         for stage in self.detail_branch:
             x = stage(x)
+        return x
+
+
+@FFM.register_module()
+class CPVecSPMapFFM(BaseModule):
+
+    def __init__(
+        self,
+        transformer_decoder_cfg,
+        in_channels=128,
+        embed_dims=256,
+        num_layers=1,
+        patch_size=1,
+        stride=None,
+        padding='corner',
+        norm_cfg=dict(type='BN'),
+        final_upsample=True,
+        final_fuse=False,
+        init_cfg=None
+    ):
+        super().__init__(init_cfg)
+        self.patch_embed = PatchEmbed(
+            in_channels,
+            embed_dims,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=padding)
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+
+        self.final_upsample = final_upsample
+        if self.final_upsample:
+            self.up_conv = ConvModule(
+                embed_dims, embed_dims, 3, padding=1, norm_cfg=norm_cfg)
+        # self.final_fuse = final_fuse
+
+    def forward(self, spatial_path, context_path):
+        x_spatial, hw_shape = self.patch_embed(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x = layer(x_spatial, x_context, x_context)
+            else:
+                x = layer(x)
+        x = nlc_to_nchw(x, hw_shape)
+        if self.final_upsample:
+            x_16 = self.up_conv(x)
+            x = resize(x_16, scale_factor=2, mode='bilinear')
+            # if self.final_fuse:
+            #     x = spatial_path * F.sigmoid(x)
+
         return x
 
 
