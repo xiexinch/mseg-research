@@ -434,6 +434,61 @@ class CPVecSPMapFFM(BaseModule):
 
 
 @FFM.register_module()
+class CPVecSPMapFFMReverse(BaseModule):
+
+    def __init__(
+        self,
+        transformer_decoder_cfg,
+        in_channels=128,
+        embed_dims=256,
+        num_layers=1,
+        patch_size=1,
+        stride=None,
+        padding='corner',
+        norm_cfg=dict(type='BN'),
+        final_upsample=True,
+        final_fuse=False,
+        cp_up_rate=2,
+        init_cfg=None
+    ):
+        super().__init__(init_cfg)
+        self.patch_embed = PatchEmbed(
+            in_channels,
+            embed_dims,
+            kernel_size=patch_size,
+            stride=stride,
+            padding=padding)
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+
+        self.final_upsample = final_upsample
+        if self.final_upsample:
+            self.up_conv = ConvModule(
+                embed_dims, embed_dims, 3, padding=1, norm_cfg=norm_cfg)
+        # self.final_fuse = final_fuse
+        self.cp_up_rate = cp_up_rate
+
+    def forward(self, spatial_path, context_path):
+        x_spatial, hw_shape = self.patch_embed(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x = layer(x_context, x_spatial, x_spatial)
+            else:
+                x = layer(x)
+        x = nlc_to_nchw(x, [l // self.cp_up_rate for l in hw_shape])
+        if self.final_upsample:
+            x_16 = self.up_conv(x)
+            x = resize(x_16, scale_factor=2, mode='bilinear')
+            # if self.final_fuse:
+            #     x = spatial_path * F.sigmoid(x)
+
+        return x
+
+
+@FFM.register_module()
 class CPMapSPVecFFM(BaseModule):
 
     def __init__(self,
