@@ -3,9 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn.bricks.norm import build_norm_layer
-from mmcv.cnn.bricks.transformer import build_transformer_layer
+from mmcv.cnn.bricks.transformer import build_transformer_layer, FFN, build_dropout
 from mmcv.runner import BaseModule, ModuleList
 from mmcv.cnn import ConvModule, Linear
+from mmcv.utils import to_2tuple
 
 from mmseg.models.builder import MODELS, build_backbone
 from mmseg.models.utils.shape_convert import nchw_to_nlc
@@ -13,7 +14,7 @@ from mmseg.ops.wrappers import resize
 from ..utils.embed import PatchMerging
 from ..utils import PatchEmbed, nlc_to_nchw
 from ..backbones.vit import TransformerEncoderLayer
-from ..backbones.swin import SwinBlock
+from ..backbones.swin import SwinBlock, ShiftWindowMSA, WindowMSA
 from ..backbones.mit import TransformerEncoderLayer as MiTTransformerLayer
 
 CONTEXT_PATH = MODELS
@@ -383,20 +384,18 @@ class DetailBranch(BaseModule):
 @FFM.register_module()
 class CPVecSPMapFFM(BaseModule):
 
-    def __init__(
-        self,
-        transformer_decoder_cfg,
-        in_channels=128,
-        embed_dims=256,
-        num_layers=1,
-        patch_size=1,
-        stride=None,
-        padding='corner',
-        norm_cfg=dict(type='BN'),
-        final_upsample=True,
-        final_fuse=False,
-        init_cfg=None
-    ):
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 in_channels=128,
+                 embed_dims=256,
+                 num_layers=1,
+                 patch_size=1,
+                 stride=None,
+                 padding='corner',
+                 norm_cfg=dict(type='BN'),
+                 final_upsample=True,
+                 final_fuse=False,
+                 init_cfg=None):
         super().__init__(init_cfg)
         self.patch_embed = PatchEmbed(
             in_channels,
@@ -436,21 +435,19 @@ class CPVecSPMapFFM(BaseModule):
 @FFM.register_module()
 class CPVecSPMapFFMReverse(BaseModule):
 
-    def __init__(
-        self,
-        transformer_decoder_cfg,
-        in_channels=128,
-        embed_dims=256,
-        num_layers=1,
-        patch_size=1,
-        stride=None,
-        padding='corner',
-        norm_cfg=dict(type='BN'),
-        final_upsample=True,
-        final_fuse=False,
-        cp_up_rate=2,
-        init_cfg=None
-    ):
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 in_channels=128,
+                 embed_dims=256,
+                 num_layers=1,
+                 patch_size=1,
+                 stride=None,
+                 padding='corner',
+                 norm_cfg=dict(type='BN'),
+                 final_upsample=True,
+                 final_fuse=False,
+                 cp_up_rate=2,
+                 init_cfg=None):
         super().__init__(init_cfg)
         self.patch_embed = PatchEmbed(
             in_channels,
@@ -857,3 +854,265 @@ class AttentionRefinementModule(BaseModule):
         x_atten = self.atten_conv_layer(x)
         x_out = x * x_atten
         return x_out
+
+
+class WindowCrossMSA(WindowMSA):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.qkv = None
+
+    def forward(self, q, k, v, mask=None):
+        B, N, C = q.shape
+
+        qkv = torch.cat([q, k, v], dim=2).reshape(B, N, 3, self.num_heads,
+                                                  C // self.num_heads).permute(
+                                                      2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+
+        relative_position_bias = self.relative_position_bias_table[
+            self.relative_position_index.view(-1)].view(
+                self.window_size[0] * self.window_size[1],
+                self.window_size[0] * self.window_size[1],
+                -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = relative_position_bias.permute(
+            2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        attn = attn + relative_position_bias.unsqueeze(0)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(B // nW, nW, self.num_heads, N,
+                             N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
+        attn = self.softmax(attn)
+
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
+class ShiftWindowCrossMSA(ShiftWindowMSA):
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 window_size,
+                 shift_size=0,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 attn_drop_rate=0,
+                 proj_drop_rate=0,
+                 dropout_layer=dict(type='DropPath', drop_prob=0.),
+                 init_cfg=None):
+        super().__init__(
+            embed_dims=embed_dims,
+            num_heads=num_heads,
+            window_size=window_size,
+            shift_size=0,
+            qkv_bias=True,
+            qk_scale=None,
+            attn_drop_rate=0,
+            proj_drop_rate=0,
+            dropout_layer=dict(type='DropPath', drop_prob=0.),
+            init_cfg=init_cfg)
+
+        self.window_size = window_size
+        self.shift_size = shift_size
+        assert 0 <= self.shift_size < self.window_size
+
+        self.w_msa = WindowCrossMSA(
+            embed_dims=embed_dims,
+            num_heads=num_heads,
+            window_size=to_2tuple(window_size),
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop_rate=attn_drop_rate,
+            proj_drop_rate=proj_drop_rate,
+            init_cfg=None)
+
+        self.drop = build_dropout(dropout_layer)
+
+    def forward(self, query, key, value, hw_shape):
+        B, L, C = query.shape
+        H, W = hw_shape
+        assert L == H * W, 'input feature has wrong size'
+        query = query.view(B, H, W, C)
+        key = key.view(B, H, W, C)
+        value = value.view(B, H, W, C)
+
+        # pad feature maps to multiples of window size
+        pad_r = (self.window_size - W % self.window_size) % self.window_size
+        pad_b = (self.window_size - H % self.window_size) % self.window_size
+        query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b))
+        key = F.pad(key, (0, 0, 0, pad_r, 0, pad_b))
+        value = F.pad(value, (0, 0, 0, pad_r, 0, pad_b))
+
+        H_pad, W_pad = query.shape[1], query.shape[2]
+
+        attn_mask = None
+
+        # nW*B, window_size, window_size, C
+        query_windows = self.window_partition(query)
+        key_windows = self.window_partition(key)
+        value_windows = self.window_partition(value)
+        # nW*B, window_size*window_size, C
+        query_windows = query_windows.view(-1, self.window_size**2, C)
+        key_windows = query_windows.view(-1, self.window_size**2, C)
+        value_windows = query_windows.view(-1, self.window_size**2, C)
+
+        # W-MSA/SW-MSA (nW*B, window_size*window_size, C)
+        attn_windows = self.w_msa(
+            query_windows, key_windows, value_windows, mask=attn_mask)
+
+        # merge windows
+        attn_windows = attn_windows.view(-1, self.window_size,
+                                         self.window_size, C)
+
+        # B H' W' C
+        x = self.window_reverse(attn_windows, H_pad, W_pad)
+
+        if pad_r > 0 or pad_b:
+            x = x[:, :H, :W, :].contiguous()
+
+        x = x.view(B, H * W, C)
+
+        x = self.drop(x)
+        return x
+
+
+class SwinDecoderBlock(BaseModule):
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 feedforward_channels,
+                 window_size=7,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.,
+                 act_cfg=dict(type='GELU'),
+                 norm_cfg=dict(type='LN'),
+                 with_cp=False,
+                 init_cfg=None):
+        super(SwinDecoderBlock, self).__init__(init_cfg)
+
+        self.with_cp = with_cp
+
+        self.attn = ShiftWindowMSA(
+            embed_dims=embed_dims,
+            num_heads=num_heads,
+            window_size=window_size,
+            shift_size=window_size // 2,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop_rate=attn_drop_rate,
+            proj_drop_rate=drop_rate,
+            dropout_layer=dict(type='DropPath', drop_prob=drop_path_rate),
+            init_cfg=None)
+        self.norm1 = build_norm_layer(norm_cfg, embed_dims)[1]
+
+        self.cross_attn = ShiftWindowCrossMSA(
+            embed_dims=embed_dims,
+            num_heads=num_heads,
+            window_size=window_size,
+            shift_size=0,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            attn_drop_rate=attn_drop_rate,
+            proj_drop_rate=drop_rate,
+            dropout_layer=dict(type='DropPath', drop_prob=drop_path_rate),
+            init_cfg=None)
+        self.norm2 = build_norm_layer(norm_cfg, embed_dims)[1]
+
+        self.ffn = FFN(
+            embed_dims=embed_dims,
+            feedforward_channels=feedforward_channels,
+            num_fcs=2,
+            ffn_drop=drop_rate,
+            dropout_layer=dict(type='DropPath', drop_prob=drop_path_rate),
+            act_cfg=act_cfg,
+            add_identity=True,
+            init_cfg=None)
+        self.norm3 = build_norm_layer(norm_cfg, embed_dims)[1]
+
+    def forward(self, x, k, v, hw_shape):
+
+        def _inner_forward(x):
+            identity = x
+            x = self.norm1(x)
+            x = self.attn(x, hw_shape)
+
+            x = x + identity
+
+            identity = x
+            x = self.norm2(x)
+            x = self.cross_attn(x, k, v, hw_shape)
+
+            x = x + identity
+
+            identity = x
+            x = self.norm3(x)
+            x = self.ffn(x, identity=identity)
+
+            return x
+
+        if self.with_cp and x.requires_grad:
+            x = cp.checkpoint(_inner_forward, x)
+        else:
+            x = _inner_forward(x)
+
+        return x
+
+
+@FFM.register_module()
+class SwinDecoderFFM(BaseModule):
+    """Feature Fusion Module based on Transformer Decoder
+    """
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 feedforward_channels,
+                 window_size=7,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.,
+                 init_cfg=None,
+                 **kwargs):
+        if init_cfg is None:
+            init_cfg = [
+                dict(type='Kaiming', layer='Conv2d'),
+                dict(
+                    type='Constant',
+                    val=1,
+                    layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
+            ]
+        super().__init__(init_cfg)
+
+        self.fuse_layer = SwinDecoderBlock(
+            embed_dims,
+            num_heads,
+            feedforward_channels,
+            window_size=window_size,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=drop_path_rate,
+        )
+
+    def forward(self, spatial_path, context_path):
+        hw_shape = spatial_path.shape[2:]
+        x_spatial = nchw_to_nlc(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        out = self.fuse_layer(x_context, x_spatial, x_spatial, hw_shape)
+        return nlc_to_nchw(out, hw_shape)
