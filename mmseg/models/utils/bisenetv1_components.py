@@ -587,7 +587,8 @@ class TransformerDecoderFFM(BaseModule):
     def __init__(self,
                  transformer_decoder_cfg,
                  num_layers=2,
-                 init_cfg=None):
+                 init_cfg=None,
+                 **kwargs):
         if init_cfg is None:
             init_cfg = [
                 dict(type='Kaiming', layer='Conv2d'),
