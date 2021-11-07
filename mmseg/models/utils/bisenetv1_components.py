@@ -609,10 +609,10 @@ class TransformerDecoderFFM(BaseModule):
         x_context = nchw_to_nlc(context_path)
         for i, layer in enumerate(self.layers):
             if i == 0:
-                x_query = layer(x_context, x_spatial, x_spatial)
+                x = layer(x_context, x_spatial, x_spatial)
             else:
-                x_query = layer(x_query)
-        x = self.norm(x_query)
+                x = layer(x)
+
         B, _, C = x.shape
         out = x.reshape(B, hw_shape[0], hw_shape[1],
                         C).permute(0, 3, 1, 2).contiguous()
