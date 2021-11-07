@@ -60,3 +60,28 @@ class BiSeNetSWCFG(BaseModule):
         x_8, x_32 = self.backbone(x)
         x_fuse = self.ffm(x_8, x_32)
         return [x_8, x_32, x_fuse]
+
+
+@BACKBONES.register_module()
+class BiSeNetSWContext(BaseModule):
+    """BiSeNetV1 backbone.
+    """
+
+    def __init__(self,
+                 context_path_cfg,
+                 ffm_cfg,
+                 init_cfg=None,
+                 out_indices=(0, 1, 2),
+                 **kwargs):
+
+        super(BiSeNetSWContext, self).__init__(init_cfg)
+
+        self.backbone = build_context_path(context_path_cfg)
+
+        self.ffm = build_ffm(ffm_cfg)
+        self.out_indices = out_indices
+
+    def forward(self, x):
+        x_spatial_8, x_context_8, x_context_16 = self.backbone(x)
+        x_fuse = self.ffm(x_spatial_8, x_context_8)
+        return [x_spatial_8, x_context_16, x_fuse]

@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from mmcv.runner import BaseModule, ModuleList
-from mmcv.runner.base_module import Sequential
+
+import torch
 
 
 from ..builder import BACKBONES
@@ -8,6 +9,7 @@ from ..utils import (build_transformer_layer, ResLayer,
                      PatchEmbed, PatchMerging, nlc_to_nchw)
 from .resnet import BasicBlock
 from .bisenetv2 import StemBlock
+from .swin import SwinBlockSequence
 
 
 @BACKBONES.register_module()
@@ -157,13 +159,96 @@ class HybridSwin(HybridTransformer):
 
 
 @BACKBONES.register_module()
-class HybridResNet(BaseModule):
+class HybridSwinResNet(BaseModule):
 
     def __init__(
         self,
         in_channels,
-        base_channels,
+        embed_dims,
+        embed_cfg=None,
         out_indices=(0, 1, 2, 3),
+        window_size=7,
+        num_heads=[3, 6],
+        mlp_ratio=4,
+        depths=[2, 2],
+        patch_norm=True,
+        qkv_bias=True,
+        qk_scale=None,
+        drop_rate=0.,
+        attn_drop_rate=0.,
+        drop_path_rate=0.1,
+        res_norm_cfg=dict(type='BN'),
+        num_res_layers=[2, 2],
+        swin_act_cfg=dict(type='GELU'),
+        swin_norm_cfg=dict(type='LN'),
+        with_cp=False,
         init_cfg=None
     ):
-        super(HybridTransformer, self).__init__(init_cfg)
+        super(HybridSwinResNet, self).__init__(init_cfg)
+        self.out_indices = out_indices
+        if embed_cfg is None:
+            embed_cfg = dict(
+                kernel_size=4,
+                stride=4,
+                padding='corner'
+            )
+        # downsample 4x
+        self.patch_embed = PatchEmbed(
+            in_channels=in_channels,
+            embed_dims=embed_dims,
+            conv_type='Conv2d',
+            norm_cfg=swin_norm_cfg if patch_norm else None,
+            **embed_cfg)
+
+        # set stochastic depth decay rule
+        total_depth = sum(depths)
+        dpr = [
+            x.item() for x in torch.linspace(0, drop_path_rate, total_depth)
+        ]
+
+        for i in range(2):
+            stage = SwinBlockSequence(
+                embed_dims=embed_dims,
+                num_heads=num_heads[i],
+                feedforward_channels=mlp_ratio * embed_dims,
+                window_size=window_size,
+                depth=depths[i],
+                qkv_bias=qkv_bias,
+                qk_scale=qk_scale,
+                drop_rate=drop_rate,
+                attn_drop_rate=attn_drop_rate,
+                drop_path_rate=dpr[sum(depths[:i]):sum(depths[:i + 1])],
+                downsample=PatchMerging(
+                    in_channels=embed_dims,
+                    out_channels=embed_dims * 2,
+                    stride=2,
+                    norm_cfg=swin_norm_cfg if patch_norm else None) if i == 0 else None,
+                act_cfg=swin_act_cfg,
+                norm_cfg=swin_norm_cfg,
+                with_cp=with_cp)
+            self.add_module(f'stage_{2**(i + 2)}x', stage)
+            embed_dims *= 2
+
+        base_channels = embed_dims // 2
+        for i in range(2, 4):
+            out_channels = base_channels * 2
+            stage = ResLayer(BasicBlock, base_channels, out_channels,
+                             num_res_layers[i - 2], stride=2, norm_cfg=res_norm_cfg)
+            base_channels = out_channels
+            self.add_module(f'stage_{2**(i + 2)}x', stage)
+
+    def forward(self, x):
+        x, hw_shape = self.patch_embed(x)
+        outs = []
+        for i in range(2):
+            stage = self.get_submodule(f'stage_{2**(i + 2)}x')
+            x, hw_shape, _, _ = stage(x, hw_shape)
+            outs.append(nlc_to_nchw(x, hw_shape))
+
+        x = nlc_to_nchw(x, hw_shape)
+        for i in range(2, 4):
+            stage = self.get_submodule(f'stage_{2**(i + 2)}x')
+            x = stage(x)
+            outs.append(x)
+        outs = [outs[i] for i in self.out_indices]
+        return outs

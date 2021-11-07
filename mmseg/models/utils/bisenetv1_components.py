@@ -580,6 +580,47 @@ class TransformerDecoderFeatureFusionLayer(BaseModule):
 
 
 @FFM.register_module()
+class TransformerDecoderFFM(BaseModule):
+    """Feature Fusion Module based on Transformer Decoder
+    """
+
+    def __init__(self,
+                 transformer_decoder_cfg,
+                 num_layers=2,
+                 init_cfg=None):
+        if init_cfg is None:
+            init_cfg = [
+                dict(type='Kaiming', layer='Conv2d'),
+                dict(
+                    type='Constant',
+                    val=1,
+                    layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
+            ]
+        super().__init__(init_cfg)
+
+        self.layers = ModuleList()
+        for _ in range(num_layers):
+            layer = build_transformer_layer(transformer_decoder_cfg)
+            self.layers.append(layer)
+
+    def forward(self, spatial_path, context_path):
+        hw_shape = spatial_path.shape[2:]
+        x_spatial = nchw_to_nlc(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        for i, layer in enumerate(self.layers):
+            if i == 0:
+                x_query = layer(x_context, x_spatial, x_spatial)
+            else:
+                x_query = layer(x_query)
+        x = self.norm(x_query)
+        B, _, C = x.shape
+        out = x.reshape(B, hw_shape[0], hw_shape[1],
+                        C).permute(0, 3, 1, 2).contiguous()
+
+        return out
+
+
+@FFM.register_module()
 class FeatureFusionModule(BaseModule):
     """Feature Fusion Module to fuse low level output feature of Spatial Path
     and high level output feature of Context Path.
@@ -769,7 +810,7 @@ class ContextPath(BaseModule):
         x_16_up = resize(input=x_16_sum, size=x_8.shape[2:], mode='nearest')
         x_16_up = self.conv_head16(x_16_up)
 
-        return x_16_up, x_32_up
+        return x_8, x_16_up, x_32_up
 
 
 class AttentionRefinementModule(BaseModule):
