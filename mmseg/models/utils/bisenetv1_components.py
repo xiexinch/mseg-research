@@ -937,20 +937,28 @@ class ShiftWindowCrossMSA(ShiftWindowMSA):
 
         self.drop = build_dropout(dropout_layer)
 
-    def forward(self, query, key, value, hw_shape):
-        B, L, C = query.shape
+    def forward(self, query, key, value, hw_shape, key_shape=None):
+        B, qL, C = query.shape
+        _, kL, _ = key.shape
         H, W = hw_shape
-        assert L == H * W, 'input feature has wrong size'
+        if key_shape is not None:
+            kH, kW = key_shape
+        else:
+            kH, kW = H, W
+        assert qL == H * W, 'input feature has wrong size'
         query = query.view(B, H, W, C)
-        key = key.view(B, H, W, C)
-        value = value.view(B, H, W, C)
+        key = key.view(B, kH, kW, C)
+        value = value.view(B, kH, kW, C)
 
         # pad feature maps to multiples of window size
         pad_r = (self.window_size - W % self.window_size) % self.window_size
         pad_b = (self.window_size - H % self.window_size) % self.window_size
+        pad_kr = (self.window_size - kW % self.window_size) % self.window_size
+        pad_kb = (self.window_size - kH % self.window_size) % self.window_size
+
         query = F.pad(query, (0, 0, 0, pad_r, 0, pad_b))
-        key = F.pad(key, (0, 0, 0, pad_r, 0, pad_b))
-        value = F.pad(value, (0, 0, 0, pad_r, 0, pad_b))
+        key = F.pad(key, (0, 0, 0, pad_kr, 0, pad_kb))
+        value = F.pad(value, (0, 0, 0, pad_kr, 0, pad_kb))
 
         H_pad, W_pad = query.shape[1], query.shape[2]
 
@@ -1042,7 +1050,7 @@ class SwinDecoderBlock(BaseModule):
             init_cfg=None)
         self.norm3 = build_norm_layer(norm_cfg, embed_dims)[1]
 
-    def forward(self, x, k, v, hw_shape):
+    def forward(self, x, k, v, hw_shape, key_shape=None):
 
         def _inner_forward(x):
             identity = x
@@ -1053,7 +1061,7 @@ class SwinDecoderBlock(BaseModule):
 
             identity = x
             x = self.norm2(x)
-            x = self.cross_attn(x, k, v, hw_shape)
+            x = self.cross_attn(x, k, v, hw_shape, key_shape)
 
             x = x + identity
 
@@ -1115,4 +1123,105 @@ class SwinDecoderFFM(BaseModule):
         x_spatial = nchw_to_nlc(spatial_path)
         x_context = nchw_to_nlc(context_path)
         out = self.fuse_layer(x_context, x_spatial, x_spatial, hw_shape)
+        return nlc_to_nchw(out, hw_shape)
+
+
+@FFM.register_module()
+class SwinDecoderFFMReverse(BaseModule):
+    """Feature Fusion Module based on Transformer Decoder
+    """
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 feedforward_channels,
+                 window_size=7,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.,
+                 init_cfg=None,
+                 **kwargs):
+        if init_cfg is None:
+            init_cfg = [
+                dict(type='Kaiming', layer='Conv2d'),
+                dict(
+                    type='Constant',
+                    val=1,
+                    layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
+            ]
+        super().__init__(init_cfg)
+
+        self.fuse_layer = SwinDecoderBlock(
+            embed_dims,
+            num_heads,
+            feedforward_channels,
+            window_size=window_size,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=drop_path_rate,
+        )
+
+    def forward(self, spatial_path, context_path):
+        hw_shape = spatial_path.shape[2:]
+        x_spatial = nchw_to_nlc(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        out = self.fuse_layer(x_spatial, x_context, x_context, hw_shape)
+        return nlc_to_nchw(out, hw_shape)
+
+
+@FFM.register_module()
+class SwinDecoderFFMReverseSP(BaseModule):
+    """Feature Fusion Module based on Transformer Decoder
+    """
+
+    def __init__(self,
+                 spatial_channels,
+                 embed_dims,
+                 num_heads,
+                 feedforward_channels,
+                 window_size=7,
+                 qkv_bias=True,
+                 qk_scale=None,
+                 drop_rate=0.,
+                 attn_drop_rate=0.,
+                 drop_path_rate=0.,
+                 init_cfg=None,
+                 **kwargs):
+        if init_cfg is None:
+            init_cfg = [
+                dict(type='Kaiming', layer='Conv2d'),
+                dict(
+                    type='Constant',
+                    val=1,
+                    layer=['_BatchNorm', 'GroupNorm', 'LayerNorm'])
+            ]
+        super().__init__(init_cfg)
+
+        self.fuse_layer = SwinDecoderBlock(
+            embed_dims,
+            num_heads,
+            feedforward_channels,
+            window_size=window_size,
+            qkv_bias=qkv_bias,
+            qk_scale=qk_scale,
+            drop_rate=drop_rate,
+            attn_drop_rate=attn_drop_rate,
+            drop_path_rate=drop_path_rate,
+        )
+        self.spatial_patch_embed = PatchEmbed(
+            in_channels=spatial_channels,
+            embed_dims=embed_dims,
+            kernel_size=1,
+        )
+
+    def forward(self, spatial_path, context_path):
+        key_shape = context_path.shape[2:]
+        x_spatial, hw_shape = self.spatial_patch_embed(spatial_path)
+        x_context = nchw_to_nlc(context_path)
+        out = self.fuse_layer(x_spatial, x_context,
+                              x_context, hw_shape, key_shape)
         return nlc_to_nchw(out, hw_shape)
