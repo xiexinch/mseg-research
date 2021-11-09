@@ -33,6 +33,7 @@ class TIMMBackbone(BaseModule):
         checkpoint_path='',
         in_channels=3,
         init_cfg=None,
+        out_indices=(0, 1, 2, 3, 4),
         **kwargs,
     ):
         if timm is None:
@@ -46,6 +47,7 @@ class TIMMBackbone(BaseModule):
             pretrained=pretrained,
             in_chans=in_channels,
             checkpoint_path=checkpoint_path,
+            out_indices=out_indices
         )
 
         # Make unused parameters None

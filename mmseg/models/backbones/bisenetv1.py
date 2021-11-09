@@ -318,7 +318,8 @@ class BiSeNetV1(BaseModule):
         self.context_path = ContextPath(backbone_cfg, context_channels,
                                         self.align_corners)
         self.spatial_path = SpatialPath(in_channels, spatial_channels)
-        self.ffm = FeatureFusionModule(context_channels[1], out_channels)
+        self.ffm = FeatureFusionModule(
+            context_channels[0] + spatial_channels[-1], out_channels)
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.act_cfg = act_cfg
