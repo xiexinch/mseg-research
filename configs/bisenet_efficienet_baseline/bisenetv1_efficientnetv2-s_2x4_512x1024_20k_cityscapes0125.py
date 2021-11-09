@@ -6,14 +6,22 @@ _base_ = [
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 model = dict(
     backbone=dict(
+        type='BiSeNetV1',
+        in_channels=3,
+        context_channels=(64, 160, 256),
+        spatial_channels=(64, 64, 64, 64),
+        out_indices=(0, 1, 2),
+        out_channels=256,
         backbone_cfg=dict(
             type='TIMMBackbone',
             pretrained=False,
             features_only=True,
             model_name='tf_efficientnetv2_s_in21ft1k',
             out_indices=(1, 2, 3, 4)
-        )
-    ),
+        ),
+        norm_cfg=norm_cfg,
+        align_corners=False,
+        init_cfg=None),
     decode_head=dict(
         type='FCNHead',
         in_channels=256,
