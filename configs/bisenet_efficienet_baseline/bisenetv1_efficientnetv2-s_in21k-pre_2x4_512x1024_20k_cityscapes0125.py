@@ -1,7 +1,7 @@
 _base_ = [
     '../_base_/models/bisenetv1_r18-d32.py',
-    '../_base_/datasets/cityscapes_1024x1024.py',
-    '../_base_/default_runtime.py', '../_base_/schedules/schedule_160k.py'
+    './cityscapes_0125.py',
+    '../_base_/default_runtime.py', '../_base_/schedules/schedule_20k.py'
 ]
 norm_cfg = dict(type='SyncBN', requires_grad=True)
 model = dict(
@@ -14,7 +14,7 @@ model = dict(
         out_channels=256,
         backbone_cfg=dict(
             type='TIMMBackbone',
-            pretrained=False,
+            pretrained=True,
             features_only=True,
             model_name='tf_efficientnetv2_s_in21ft1k',
             out_indices=(1, 2, 3, 4)
