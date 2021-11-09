@@ -46,7 +46,6 @@ class TIMMBackbone(BaseModule):
             pretrained=pretrained,
             in_chans=in_channels,
             checkpoint_path=checkpoint_path,
-            **kwargs,
         )
 
         # Make unused parameters None

@@ -1,0 +1,22 @@
+_base_ = [
+    '../_base_/models/bisenetv1_r18-d32.py',
+    './cityscapes_0125.py',
+    '../_base_/default_runtime.py', '../_base_/schedules/schedule_160k.py'
+]
+model = dict(
+    backbone=dict(
+        backbone_cfg=dict(
+            type='TIMMBackbone',
+            pretrained=True,
+            features_only=True,
+            model_name='tf_efficientnetv2_s_in21ft1k',
+            out_indices=(1, 2, 3, 4)
+        )
+    )
+)
+lr_config = dict(warmup='linear', warmup_iters=1000)
+optimizer = dict(lr=0.025)
+data = dict(
+    samples_per_gpu=4,
+    workers_per_gpu=4,
+)
