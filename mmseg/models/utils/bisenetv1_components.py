@@ -856,6 +856,51 @@ class AttentionRefinementModule(BaseModule):
         return x_out
 
 
+class WindowCrossMSA_x(WindowMSA):
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.qkv = None
+        self.relative_position_bias_table = None
+
+    def forward(self, q, k, v, mask=None):
+        B, N, C = q.shape
+        kB, _, _ = k.shape
+        q = q.reshape(B, N, self.num_heads, C //
+                      self.num_heads).permute(2, 1, 0, 3)
+        k = k.reshape(kB, N, self.num_heads, C //
+                      self.num_heads).permute(2, 1, 0, 3)
+        v = v.reshape(kB, N, self.num_heads, C //
+                      self.num_heads).permute(2, 1, 0, 3)
+
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+
+        # relative_position_bias = self.relative_position_bias_table[
+        #     self.relative_position_index.view(-1)].view(
+        #         self.window_size[0] * self.window_size[1],
+        #         self.window_size[0] * self.window_size[1],
+        #         -1)  # Wh*Ww,Wh*Ww,nH
+        # relative_position_bias = relative_position_bias.permute(
+        #     2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*
+        # print(attn.shape, relative_position_bias.shape)
+        # attn = attn + relative_position_bias.unsqueeze(0)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(B // nW, nW, self.num_heads, N,
+                             N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
+        attn = self.softmax(attn)
+
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+        return x
+
+
 class WindowCrossMSA(WindowMSA):
 
     def __init__(self, **kwargs):
@@ -970,8 +1015,8 @@ class ShiftWindowCrossMSA(ShiftWindowMSA):
         value_windows = self.window_partition(value)
         # nW*B, window_size*window_size, C
         query_windows = query_windows.view(-1, self.window_size**2, C)
-        key_windows = query_windows.view(-1, self.window_size**2, C)
-        value_windows = query_windows.view(-1, self.window_size**2, C)
+        key_windows = key_windows.view(-1, self.window_size**2, C)
+        value_windows = value_windows.view(-1, self.window_size**2, C)
 
         # W-MSA/SW-MSA (nW*B, window_size*window_size, C)
         attn_windows = self.w_msa(
