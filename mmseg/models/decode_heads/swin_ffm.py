@@ -94,7 +94,7 @@ class Swin_FFM(BaseDecodeHead):
             x = nlc_to_nchw(x, hw_shape)
             x = self.upsample_convs[i](x)
             x = resize(x, scale_factor=2, mode='bilinear')
-
+        x = self.conv_seg(x)
         return x
 
 
