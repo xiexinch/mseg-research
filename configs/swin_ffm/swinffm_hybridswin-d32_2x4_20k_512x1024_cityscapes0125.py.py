@@ -28,5 +28,5 @@ lr_config = dict(
     min_lr=0.0,
     by_epoch=False)
 
-# By default, models are trained on 4 GPUs with 4 images per GPU
-data = dict(samples_per_gpu=4)
+# By default, models are trained on 2 GPUs with 2 images per GPU
+data = dict(samples_per_gpu=2)

@@ -48,9 +48,9 @@ model = dict(
             type='CrossEntropyLoss', use_sigmoid=False, loss_weight=1.0)),
     auxiliary_head=dict(
         type='FCNHead',
-        in_channels=64,
+        in_channels=256,
         channels=64,
-        num_convs=1,
+        num_convs=2,
         num_classes=19,
         in_index=1,
         norm_cfg=norm_cfg,
