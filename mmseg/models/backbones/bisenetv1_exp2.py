@@ -110,3 +110,22 @@ class BiSeNetSimpleContext(BaseModule):
         x_8, x_16, x_32 = self.backbone(x)
         x_fuse = self.ffm(x_8, x_32)
         return [x_8, x_16, x_fuse]
+
+
+@BACKBONES.register_module()
+class SimpleBiSeNet(BaseModule):
+    def __init__(
+            self,
+            backbone_cfg,
+            spatial_path_cfg,
+            init_cfg=None):
+        super().__init__(init_cfg=init_cfg)
+        self.backbone = build_backbone(backbone_cfg)
+        self.spatial_path = build_spatial_path(spatial_path_cfg)
+
+    def forward(self, img):
+        # x32
+        context_path = self.backbone(img)
+        # x8
+        spatial_path = self.spatial_path(img)
+        return tuple([spatial_path, context_path[0]])
