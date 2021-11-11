@@ -118,7 +118,8 @@ class SimpleBiSeNet(BaseModule):
             self,
             backbone_cfg,
             spatial_path_cfg,
-            init_cfg=None):
+            init_cfg=None,
+            **kwargs):
         super().__init__(init_cfg=init_cfg)
         self.backbone = build_backbone(backbone_cfg)
         self.spatial_path = build_spatial_path(spatial_path_cfg)
