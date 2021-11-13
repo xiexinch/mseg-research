@@ -1,12 +1,17 @@
+from mmcv.cnn.bricks.wrappers import Linear
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmcv.cnn import ConvModule, DepthwiseSeparableConvModule
 from mmcv.runner import BaseModule, Sequential
+from mmcv.cnn.bricks.transformer import FFN
+
+from mmseg.models.utils import self_attention_block
 
 from .fast_scnn import FeatureFusionModule, LearningToDownsample, GlobalFeatureExtractor
 from mmseg.ops import resize
 from ..builder import BACKBONES
-from ..utils import InvertedResidual
+from ..utils import InvertedResidual, nchw_to_nlc, nlc_to_nchw, PatchEmbed
 
 
 class ASPPGlobalFeatureExtractor(BaseModule):
@@ -66,6 +71,75 @@ class ASPPGlobalFeatureExtractor(BaseModule):
         return self.bottlenecks(x)
 
 
+class SelfAttention(BaseModule):
+
+    def __init__(
+            self,
+            in_channels,
+            embed_dims,
+            patch_size=4,
+            num_heads=8,
+            qkv_bias=False,
+            attn_drop=0.,
+            proj_drop=0.,
+            mlp_ratio=4,
+            fc_drop=0.,
+            init_cfg=None):
+        super(SelfAttention, self).__init__(init_cfg)
+        self.patch_embed = PatchEmbed(
+            in_channels,
+            embed_dims,
+            patch_size
+        )
+
+        # attn
+        self.num_heads = num_heads
+        self.scale = (embed_dims // num_heads) ** -0.5
+        self.qkv = Linear(embed_dims, embed_dims*3, qkv_bias)
+        self.attn_drop = nn.Dropout(attn_drop)
+        self.proj = Linear(embed_dims, embed_dims)
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        # mlp
+        hidden_dims = embed_dims * mlp_ratio
+        self.mlp = Sequential([
+            Linear(embed_dims, hidden_dims),
+            nn.ReLU(),
+            nn.Dropout(fc_drop),
+            Linear(hidden_dims, embed_dims),
+            nn.Dropout(fc_drop)
+        ])
+
+        self.conv_out = DepthwiseSeparableConvModule(
+            embed_dims,
+            in_channels,
+            kernel_size=1)
+
+    def forward(self, x):
+        out_hw_shape = x.shape[2:]
+        # downsample 4x
+        x, hw_shape = self.patch_embed(x)
+        B, N, C = x.shape
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads,
+                                  C // self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv.unbind(0)
+
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = F.softmax(attn, dim=-1)
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
+        x = self.proj_drop(x)
+
+        x = self.mlp(x)
+
+        x = nlc_to_nchw(x, hw_shape)
+        x = resize(x, size=out_hw_shape)
+        x = self.conv_out(x)
+        return x
+
+
 @BACKBONES.register_module()
 class FastSCNNEXP(BaseModule):
 
@@ -87,6 +161,7 @@ class FastSCNNEXP(BaseModule):
             act_cfg=dict(type='ReLU'),
             align_corners=False,
             dw_act_cfg=None,
+            with_self_attn=False,
             init_cfg=None):
         super(FastSCNNEXP, self).__init__(init_cfg)
         self.out_indices = out_indices
@@ -121,6 +196,12 @@ class FastSCNNEXP(BaseModule):
                 act_cfg=act_cfg,
                 align_corners=align_corners)
 
+        self.with_self_attn = with_self_attn
+        if self.with_self_attn:
+            self.attn = SelfAttention(
+                global_in_channels,
+                embed_dims=128)
+
         self.feature_fusion = FeatureFusionModule(
             higher_in_channels=global_in_channels,
             lower_in_channels=global_out_channels,
@@ -133,8 +214,14 @@ class FastSCNNEXP(BaseModule):
     def forward(self, x):
         higher_res_features = self.learning_to_downsample(x)
         lower_res_features = self.global_feature_extractor(higher_res_features)
-        fusion_output = self.feature_fusion(
-            higher_res_features, lower_res_features)
+        if self.with_self_attn:
+            higher_res_features_attn = self.attn(higher_res_features)
+            fusion_output = self.feature_fusion(
+                higher_res_features_attn, lower_res_features)
+        else:
+            fusion_output = self.feature_fusion(
+                higher_res_features, lower_res_features)
+
         outs = [higher_res_features, lower_res_features, fusion_output]
         outs = [outs[i] for i in self.out_indices]
         return tuple(outs)
