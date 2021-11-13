@@ -39,7 +39,7 @@ class ASPPGlobalFeatureExtractor(BaseModule):
                     dilation=dilations[i],
                     stride=strides[i],
                     expand_ratio=expand_ratio))
-        self.bottlenecks = Sequential(**bottlenecks)
+        self.bottlenecks = Sequential(*bottlenecks)
 
     def _make_layer(
             self,
@@ -60,7 +60,7 @@ class ASPPGlobalFeatureExtractor(BaseModule):
                     expand_ratio=expand_ratio,
                     norm_cfg=self.norm_cfg,
                     act_cfg=self.act_cfg))
-        return Sequential(**layers)
+        return Sequential(*layers)
 
     def forward(self, x):
         return self.bottlenecks(x)
@@ -124,7 +124,7 @@ class FastSCNNEXP(BaseModule):
         self.feature_fusion = FeatureFusionModule(
             higher_in_channels=global_in_channels,
             lower_in_channels=global_out_channels,
-            fusion_out_channels=fusion_out_channels,
+            out_channels=fusion_out_channels,
             conv_cfg=conv_cfg,
             norm_cfg=norm_cfg,
             dwconv_act_cfg=act_cfg,
