@@ -18,11 +18,12 @@ from .vit import VisionTransformer
 from .bisenetv1_exp import BiSeNetV1EXP
 from .bisenetv1_exp2 import BiSeNetV1EXPCFG
 from .hybrid_transformer import HybridTransformer, HybridSwinResNet
+from .fast_scnn_exp import FastSCNNEXP
 
 __all__ = [
     'ResNet', 'ResNetV1c', 'ResNetV1d', 'ResNeXt', 'HRNet', 'FastSCNN',
     'ResNeSt', 'MobileNetV2', 'UNet', 'CGNet', 'MobileNetV3',
     'VisionTransformer', 'SwinTransformer', 'MixVisionTransformer',
     'BiSeNetV1', 'BiSeNetV2', 'ICNet', 'TIMMBackbone', 'BiSeNetV1EXP',
-    'BiSeNetV1EXPCFG', 'HybridTransformer', 'HybridSwinResNet'
+    'BiSeNetV1EXPCFG', 'HybridTransformer', 'HybridSwinResNet', 'FastSCNNEXP'
 ]
