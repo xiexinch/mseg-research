@@ -5,7 +5,9 @@ _base_ = [
 
 model = dict(
     backbone=dict(
-        type='FastSCNNEXP'
+        type='FastSCNNEXP',
+        spatial_self_attn=False,
+        context_self_attn=False,
     )
 )
 

@@ -1,3 +1,4 @@
+from _typeshed import Self
 from mmcv.cnn.bricks.wrappers import Linear
 import torch
 import torch.nn as nn
@@ -6,7 +7,7 @@ from mmcv.cnn import ConvModule, DepthwiseSeparableConvModule
 from mmcv.runner import BaseModule, Sequential
 from mmcv.cnn.bricks.transformer import FFN
 
-from mmseg.models.utils import self_attention_block
+from mmseg.models.utils import embed, self_attention_block
 
 from .fast_scnn import FeatureFusionModule, LearningToDownsample, GlobalFeatureExtractor
 from mmseg.ops import resize
@@ -161,7 +162,8 @@ class FastSCNNEXP(BaseModule):
             act_cfg=dict(type='ReLU'),
             align_corners=False,
             dw_act_cfg=None,
-            with_self_attn=False,
+            spatial_self_attn=False,
+            context_self_attn=False,
             init_cfg=None):
         super(FastSCNNEXP, self).__init__(init_cfg)
         self.out_indices = out_indices
@@ -196,11 +198,18 @@ class FastSCNNEXP(BaseModule):
                 act_cfg=act_cfg,
                 align_corners=align_corners)
 
-        self.with_self_attn = with_self_attn
-        if self.with_self_attn:
-            self.attn = SelfAttention(
+        self.spatial_self_attn = spatial_self_attn
+        if self.spatial_self_attn:
+            self.spatial_self_attn = SelfAttention(
                 global_in_channels,
                 embed_dims=128)
+
+        self.context_self_atnn = context_self_attn
+        if self.context_self_atnn:
+            self.context_self_attn = SelfAttention(
+                global_out_channels,
+                embed_dims=128,
+            )
 
         self.feature_fusion = FeatureFusionModule(
             higher_in_channels=global_in_channels,
@@ -214,8 +223,9 @@ class FastSCNNEXP(BaseModule):
     def forward(self, x):
         higher_res_features = self.learning_to_downsample(x)
         lower_res_features = self.global_feature_extractor(higher_res_features)
-        if self.with_self_attn:
-            higher_res_features_attn = self.attn(higher_res_features)
+        if self.spatial_self_attn:
+            higher_res_features_attn = self.spatial_self_attn(
+                higher_res_features)
             fusion_output = self.feature_fusion(
                 higher_res_features_attn, lower_res_features)
         else:
