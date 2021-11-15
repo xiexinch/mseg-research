@@ -1,17 +1,14 @@
-from mmcv.cnn.bricks.wrappers import Linear
-import torch
+
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcv.cnn import ConvModule, DepthwiseSeparableConvModule
+from mmcv.cnn import DepthwiseSeparableConvModule
 from mmcv.runner import BaseModule, Sequential
-from mmcv.cnn.bricks.transformer import FFN
-
-from mmseg.models.utils import embed, self_attention_block
+from mmcv.cnn.bricks.wrappers import Linear
 
 from .fast_scnn import FeatureFusionModule, LearningToDownsample, GlobalFeatureExtractor
 from mmseg.ops import resize
 from ..builder import BACKBONES
-from ..utils import InvertedResidual, nchw_to_nlc, nlc_to_nchw, PatchEmbed
+from ..utils import InvertedResidual, nlc_to_nchw, PatchEmbed
 
 
 class ASPPGlobalFeatureExtractor(BaseModule):
@@ -86,10 +83,11 @@ class SelfAttention(BaseModule):
             fc_drop=0.,
             init_cfg=None):
         super(SelfAttention, self).__init__(init_cfg)
+
         self.patch_embed = PatchEmbed(
             in_channels,
             embed_dims,
-            patch_size
+            kernel_size=patch_size
         )
 
         # attn
@@ -102,13 +100,13 @@ class SelfAttention(BaseModule):
 
         # mlp
         hidden_dims = embed_dims * mlp_ratio
-        self.mlp = Sequential([
+        self.mlp = Sequential(
             Linear(embed_dims, hidden_dims),
             nn.ReLU(),
             nn.Dropout(fc_drop),
             Linear(hidden_dims, embed_dims),
             nn.Dropout(fc_drop)
-        ])
+        )
 
         self.conv_out = DepthwiseSeparableConvModule(
             embed_dims,
@@ -200,15 +198,15 @@ class FastSCNNEXP(BaseModule):
         self.spatial_self_attn = spatial_self_attn
         if self.spatial_self_attn:
             self.spatial_self_attn = SelfAttention(
-                global_in_channels,
+                in_channels=global_in_channels,
                 embed_dims=128)
 
-        self.context_self_atnn = context_self_attn
-        if self.context_self_atnn:
+        self.context_self_attn = context_self_attn
+        if self.context_self_attn:
             self.context_self_attn = SelfAttention(
-                global_out_channels,
+                in_channels=global_out_channels,
                 embed_dims=128,
-            )
+                patch_size=1)
 
         self.feature_fusion = FeatureFusionModule(
             higher_in_channels=global_in_channels,
@@ -222,14 +220,17 @@ class FastSCNNEXP(BaseModule):
     def forward(self, x):
         higher_res_features = self.learning_to_downsample(x)
         lower_res_features = self.global_feature_extractor(higher_res_features)
+
         if self.spatial_self_attn:
-            higher_res_features_attn = self.spatial_self_attn(
+            higher_res_features = self.spatial_self_attn(
                 higher_res_features)
-            fusion_output = self.feature_fusion(
-                higher_res_features_attn, lower_res_features)
-        else:
-            fusion_output = self.feature_fusion(
-                higher_res_features, lower_res_features)
+
+        if self.context_self_attn:
+            lower_res_features = self.context_self_attn(
+                lower_res_features)
+
+        fusion_output = self.feature_fusion(
+            higher_res_features, lower_res_features)
 
         outs = [higher_res_features, lower_res_features, fusion_output]
         outs = [outs[i] for i in self.out_indices]
