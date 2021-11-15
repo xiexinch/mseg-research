@@ -1,4 +1,3 @@
-from _typeshed import Self
 from mmcv.cnn.bricks.wrappers import Linear
 import torch
 import torch.nn as nn
