@@ -6,6 +6,7 @@ _base_ = [
 model = dict(
     backbone=dict(
         type='FastSCNNEXP',
+        aspp_dilations=(1, 1, 1),
         spatial_self_attn=False,
         context_self_attn=True,
     )
