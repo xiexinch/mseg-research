@@ -4,7 +4,7 @@ _base_ = [
 ]
 
 model = dict(decode_head=dict(
-    num_convs=2,
+    num_convs=1,
     concat_input=False
 ))
 
