@@ -85,3 +85,51 @@ class FFMHead(BaseDecodeHead):
             x = self.conv_cat(torch.cat([x_cat, x], dim=1))
         out = self.conv_seg(x)
         return out
+
+
+@HEADS.register_module()
+class FCMHead(BaseDecodeHead):
+
+    def __init__(
+            self,
+            in_channels=(32, 320),
+            channels=352,
+            dw_cfg=None,
+            **kwargs):
+
+        super(FCMHead, self).__init__(in_channels, channels, **kwargs)
+
+        if dw_cfg is None:
+            dw_cfg = dict(
+                dw_norm_cfg='default',
+                dw_act_cfg='default',
+                pw_norm_cfg='default',
+                pw_act_cfg='default',
+            )
+
+        # 滤波器
+        self.up_conv = DepthwiseSeparableConvModule(
+            in_channels[-1], in_channels[-1], 3, padding=1, **dw_cfg)
+
+        # spatial attn
+        self.avg_pool = nn.AdaptiveMaxPool2d(1)
+
+        # semantic channels attn
+        self.softmax = nn.Softmax(dim=1)
+
+    def forward(self, inputs):
+        x = self._transform_inputs(inputs)
+        x_8, x_32 = x[0], x[1]
+
+        # 先模糊再上采样
+        x_32 = self.up_conv(x_32)
+        x_32 = resize(x_32, scale_factor=4,
+                      mode='bilinear', align_corners=True)
+        # 空间注意力
+        x_8 = self.avg_pool(x_8) * x_8
+
+        x_cat = torch.cat([x_8, x_32], dim=1)
+
+        # A*context + B*spatial + bias
+        out = self.conv_seg(x_cat)
+        return out
