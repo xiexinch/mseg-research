@@ -5,7 +5,7 @@ _base_ = [
 
 model = dict(decode_head=dict(
     num_convs=1,
-    concat_input=False
+    concat_input=True
 ))
 
 lr_config = dict(warmup='linear', warmup_iters=1000)
