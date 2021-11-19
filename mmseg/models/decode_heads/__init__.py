@@ -28,6 +28,7 @@ from .uper_head import UPerHead
 from .swin_ffm import Swin_FFM
 from .upsample_ffm import UpsampleFFMHead
 from .ffm_head import FFMHead, FCMHead
+from .fcm_head import FCCMHead
 
 __all__ = [
     'FCNHead', 'PSPHead', 'ASPPHead', 'PSAHead', 'NLHead', 'GCHead', 'CCHead',
@@ -35,5 +36,5 @@ __all__ = [
     'EncHead', 'DepthwiseSeparableFCNHead', 'FPNHead', 'EMAHead', 'DNLHead',
     'PointHead', 'APCHead', 'DMHead', 'LRASPPHead', 'SETRUPHead',
     'SETRMLAHead', 'DPTHead', 'SETRMLAHead', 'SegformerHead', 'ISAHead',
-    'Swin_FFM', 'UpsampleFFMHead', 'FFMHead', 'FCMHead'
+    'Swin_FFM', 'UpsampleFFMHead', 'FFMHead', 'FCMHead', 'FCCMHead'
 ]
