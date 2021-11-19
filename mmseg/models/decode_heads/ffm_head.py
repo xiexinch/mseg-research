@@ -11,16 +11,15 @@ from mmseg.ops import resize
 @HEADS.register_module()
 class FFMHead(BaseDecodeHead):
 
-    def __init__(
-            self,
-            in_channels=(32, 320),
-            channels=128,
-            kernel_size=3,
-            num_convs=2,
-            concat_input=True,
-            dilation=1,
-            dw_cfg=None,
-            **kwargs):
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=128,
+                 kernel_size=3,
+                 num_convs=2,
+                 concat_input=True,
+                 dilation=1,
+                 dw_cfg=None,
+                 **kwargs):
 
         super(FFMHead, self).__init__(in_channels, channels, **kwargs)
 
@@ -53,8 +52,7 @@ class FFMHead(BaseDecodeHead):
                     kernel_size=kernel_size,
                     padding=conv_padding,
                     dilation=dilation,
-                    **dw_cfg)
-            )
+                    **dw_cfg))
         self.fuse_conv = nn.Sequential(*convs)
 
         self.concat_input = concat_input
@@ -73,8 +71,8 @@ class FFMHead(BaseDecodeHead):
 
         # 先模糊再上采样
         x_32 = self.up_conv(x_32)
-        x_32 = resize(x_32, scale_factor=4,
-                      mode='bilinear', align_corners=True)
+        x_32 = resize(
+            x_32, scale_factor=4, mode='bilinear', align_corners=True)
 
         # 空间注意力
         x_8 = self.avg_pool(x_8) * x_8
@@ -90,12 +88,11 @@ class FFMHead(BaseDecodeHead):
 @HEADS.register_module()
 class FCMHead(BaseDecodeHead):
 
-    def __init__(
-            self,
-            in_channels=(32, 320),
-            channels=352,
-            dw_cfg=None,
-            **kwargs):
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=352,
+                 dw_cfg=None,
+                 **kwargs):
 
         super(FCMHead, self).__init__(in_channels, channels, **kwargs)
 
@@ -123,8 +120,8 @@ class FCMHead(BaseDecodeHead):
 
         # 先模糊再上采样
         x_32 = self.up_conv(x_32)
-        x_32 = resize(x_32, scale_factor=4,
-                      mode='bilinear', align_corners=True)
+        x_32 = resize(
+            x_32, scale_factor=4, mode='bilinear', align_corners=True)
         # 空间注意力
         x_8 = self.avg_pool(x_8) * x_8
 

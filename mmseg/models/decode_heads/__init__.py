@@ -28,7 +28,7 @@ from .uper_head import UPerHead
 from .swin_ffm import Swin_FFM
 from .upsample_ffm import UpsampleFFMHead
 from .ffm_head import FFMHead, FCMHead
-from .fcm_head import FCCMHead
+from .fccm_head import FCCMHead
 
 __all__ = [
     'FCNHead', 'PSPHead', 'ASPPHead', 'PSAHead', 'NLHead', 'GCHead', 'CCHead',

@@ -10,13 +10,14 @@ from mmseg.ops import resize
 
 
 class ChannelAttention(BaseModule):
+
     def __init__(self, channels, reduction=16, init_cfg=None):
         super(ChannelAttention, self).__init__(init_cfg)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.se = nn.Sequential(
-            nn.Conv2d(channels, channels // reduction, 1, bias=False),
-            nn.ReLU(),
+            nn.Conv2d(channels, channels // reduction, 1,
+                      bias=False), nn.ReLU(),
             nn.Conv2d(channels // reduction, channels, 1, bias=False))
         self.sigmoid = nn.Sigmoid()
 
@@ -30,31 +31,30 @@ class ChannelAttention(BaseModule):
 
 
 class SpatialAttention(BaseModule):
-    def __init__(
-            self, kernel_size=7, init_cfg=None):
+
+    def __init__(self, kernel_size=7, init_cfg=None):
         super(SpatialAttention, self).__init__(init_cfg)
         self.conv = ConvModule(
             in_channels=2,
             out_channels=1,
             kernel_size=kernel_size,
             padding=kernel_size // 2,
-            act_cfg=dict(type='Sigmoid'))
+            act_cfg=None)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        x_max = torch.max(x, dim=1, keepdim=True)
+        x_max, _ = torch.max(x, dim=1, keepdim=True)
         x_avg = torch.mean(x, dim=1, keepdim=True)
         x_cat = torch.cat([x_max, x_avg], dim=1)
+
         out = self.conv(x_cat)
+        out = self.sigmoid(out)
         return out
 
 
 class BilateralAttn(BaseModule):
-    def __init__(
-            self,
-            channels,
-            reduction,
-            kernel_size,
-            init_cfg=None):
+
+    def __init__(self, channels, reduction, kernel_size, init_cfg=None):
         super(BilateralAttn, self).__init__(init_cfg)
         self.ca = ChannelAttention(channels, reduction)
         self.sa = SpatialAttention(kernel_size)
@@ -83,13 +83,12 @@ class BilateralAttn(BaseModule):
 @HEADS.register_module()
 class FCCMHead(BaseDecodeHead):
 
-    def __init__(
-            self,
-            in_channels=(32, 320),
-            channels=352,
-            norm_cfg=dict(type='BN'),
-            with_fuse_attn=False,
-            **kwargs):
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=352,
+                 norm_cfg=dict(type='BN'),
+                 with_fuse_attn=False,
+                 **kwargs):
 
         super(FCCMHead, self).__init__(in_channels, channels, **kwargs)
 
@@ -117,8 +116,8 @@ class FCCMHead(BaseDecodeHead):
 
         # 先模糊再上采样
         x_32 = self.up_conv(x_32)
-        x_32 = resize(x_32, scale_factor=4,
-                      mode='bilinear', align_corners=True)
+        x_32 = resize(
+            x_32, scale_factor=4, mode='bilinear', align_corners=True)
         x_32 = self.semantic_attn(x_32)
 
         # 空间注意力
