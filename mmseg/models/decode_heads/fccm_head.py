@@ -2,6 +2,7 @@ from mmcv.runner.base_module import BaseModule
 import torch
 import torch.nn as nn
 from mmcv.cnn import ConvModule, kaiming_init, constant_init, normal_init, build_upsample_layer
+from torch.nn.modules import padding
 
 from mmseg.models.builder import HEADS
 from mmseg.models.decode_heads.decode_head import BaseDecodeHead
@@ -290,4 +291,50 @@ class FFCCMHead_EXT(BaseDecodeHead):
 
         # A*context + B*spatial + bias
         out = self.conv_seg(x_cat)
+        return out
+
+
+@HEADS.register_module()
+class BiFCCMHead_EXT(BaseDecodeHead):
+
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=352,
+                 norm_cfg=dict(type='BN'),
+                 with_fuse_attn=False,
+                 **kwargs):
+
+        super(BiFCCMHead_EXT, self).__init__(in_channels, channels, **kwargs)
+
+        self.semantic_up = nn.Sequential(
+            ConvModule(in_channels[-1], in_channels[0],
+                       3, padding=1, norm_cf=norm_cfg),
+            build_upsample_layer(dict(type='carafe', channels=in_channels[-1], scale_factor=4)))
+
+        self.context_down = nn.Sequential(
+            ConvModule(in_channels[0], in_channels[0],
+                       3, padding=1, norm_cfg=norm_cfg),
+            ConvModule(in_channels[0], in_channels[-1],
+                       3, padding=1, stride=2, norm_cfg=norm_cfg),
+            nn.AvgPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False))
+
+        self.upsample = build_upsample_layer(dict(type='carafe', channels=in_channels[-1], scale_factor=4)))
+        self.activate=nn.Sigmoid()
+
+    def forward(self, inputs):
+        x=self._transform_inputs(inputs)
+        x_8, x_32=x[0], x[1]
+
+        x_32_up=self.semantic_up(x_32)
+        x_8_down=self.context_down(x_8)
+
+        x_32=x_32 * self.activate(x_8_down)
+        x_32=self.upsample(x_32)
+
+        x_8=x_8 * self.activate(x_32_up)
+
+        x_cat=torch.cat([x_8, x_32], dim = 1)
+
+        # A*context + B*spatial + bias
+        out=self.conv_seg(x_cat)
         return out

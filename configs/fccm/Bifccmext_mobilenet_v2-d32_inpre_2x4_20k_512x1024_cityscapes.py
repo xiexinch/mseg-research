@@ -3,7 +3,7 @@ _base_ = [
     '../_base_/default_runtime.py', '../_base_/schedules/schedule_20k.py'
 ]
 
-model = dict(decode_head=dict(type='FFCCMHead_EXT'))
+model = dict(decode_head=dict(type='BiFCCMHead_EXT'))
 
 lr_config = dict(warmup='linear', warmup_iters=1000)
 # optimizer = dict(lr=0.025)
