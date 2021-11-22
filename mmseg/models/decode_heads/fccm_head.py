@@ -318,23 +318,24 @@ class BiFCCMHead_EXT(BaseDecodeHead):
                        3, padding=1, stride=2, norm_cfg=norm_cfg),
             nn.AvgPool2d(kernel_size=3, stride=2, padding=1, ceil_mode=False))
 
-        self.upsample = build_upsample_layer(dict(type='carafe', channels=in_channels[-1], scale_factor=4)))
-        self.activate=nn.Sigmoid()
+        self.upsample = build_upsample_layer(
+            dict(type='carafe', channels=in_channels[-1], scale_factor=4))
+        self.activate = nn.Sigmoid()
 
     def forward(self, inputs):
-        x=self._transform_inputs(inputs)
-        x_8, x_32=x[0], x[1]
+        x = self._transform_inputs(inputs)
+        x_8, x_32 = x[0], x[1]
 
-        x_32_up=self.semantic_up(x_32)
-        x_8_down=self.context_down(x_8)
+        x_32_up = self.semantic_up(x_32)
+        x_8_down = self.context_down(x_8)
 
-        x_32=x_32 * self.activate(x_8_down)
-        x_32=self.upsample(x_32)
+        x_32 = x_32 * self.activate(x_8_down)
+        x_32 = self.upsample(x_32)
 
-        x_8=x_8 * self.activate(x_32_up)
+        x_8 = x_8 * self.activate(x_32_up)
 
-        x_cat=torch.cat([x_8, x_32], dim = 1)
+        x_cat = torch.cat([x_8, x_32], dim=1)
 
         # A*context + B*spatial + bias
-        out=self.conv_seg(x_cat)
+        out = self.conv_seg(x_cat)
         return out
