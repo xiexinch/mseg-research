@@ -308,7 +308,7 @@ class BiFCCMHead_EXT(BaseDecodeHead):
 
         self.semantic_up = nn.Sequential(
             ConvModule(in_channels[-1], in_channels[0],
-                       3, padding=1, norm_cf=norm_cfg),
+                       3, padding=1, norm_cfg=norm_cfg),
             build_upsample_layer(dict(type='carafe', channels=in_channels[-1], scale_factor=4)))
 
         self.context_down = nn.Sequential(
