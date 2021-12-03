@@ -305,3 +305,112 @@ class BiFCCMHead_EXT(BaseDecodeHead):
         # A*context + B*spatial + bias
         out = self.conv_seg(x_cat)
         return out
+
+
+@HEADS.register_module()
+class SFCCMHead_EXT(BaseDecodeHead):
+
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=352,
+                 norm_cfg=dict(type='BN'),
+                 with_fuse_attn=False,
+                 **kwargs):
+
+        super(SFCCMHead_EXT, self).__init__(in_channels, channels, **kwargs)
+
+        # 滤波器
+        self.up_conv = ConvModule(
+            in_channels[-1], in_channels[-1], 3, padding=1, norm_cfg=norm_cfg)
+
+        # spatial attn
+        self.spatial_attn = SpatialAttention(kernel_size=7)
+
+        # semantic attn
+        self.semantic_attn = ChannelAttention(in_channels[-1], reduction=16)
+
+        # fuse attn
+        self.with_fuse_attn = with_fuse_attn
+        if self.with_fuse_attn:
+            self.fuse_attn = ConvModule(
+                in_channels=sum(in_channels),
+                out_channels=channels,
+                kernel_size=3,
+                padding=1,
+                norm_cfg=norm_cfg)
+
+        # learnable upsampling
+        self.upsample = build_upsample_layer(
+            dict(type='carafe', channels=in_channels[-1], scale_factor=4))
+
+    def forward(self, inputs):
+        x = self._transform_inputs(inputs)
+        x_8, x_32 = x[0], x[1]
+
+        # 先模糊再上采样
+        x_32 = self.up_conv(x_32)
+        x_32 = self.upsample(x_32)
+        x_32 = x_32 + x_32 * self.semantic_attn(x_32)
+
+        # 空间注意力
+        x_8 = x_8 + x_8 * self.spatial_attn(x_8)
+
+        x_cat = torch.cat([x_8, x_32], dim=1)
+        if self.with_fuse_attn:
+            x_cat = self.fuse_attn(x_cat)
+
+        # A*context + B*spatial + bias
+        out = self.conv_seg(x_cat)
+        return out
+
+
+@HEADS.register_module()
+class FSCCMHead_EXT(BaseDecodeHead):
+
+    def __init__(self,
+                 in_channels=(32, 320),
+                 channels=352,
+                 norm_cfg=dict(type='BN'),
+                 with_fuse_attn=False,
+                 **kwargs):
+
+        super(FSCCMHead_EXT, self).__init__(in_channels, channels, **kwargs)
+
+        # 滤波器
+        self.up_conv = ConvModule(
+            in_channels[-1], in_channels[-1], 3, padding=1, norm_cfg=norm_cfg)
+
+        # semantic attn
+        self.semantic_attn = BilateralAttn(
+            in_channels[-1], reduction=16, kernel_size=7)
+
+        # fuse attn
+        self.with_fuse_attn = with_fuse_attn
+        if self.with_fuse_attn:
+            self.fuse_attn = ConvModule(
+                in_channels=sum(in_channels),
+                out_channels=channels,
+                kernel_size=3,
+                padding=1,
+                norm_cfg=norm_cfg)
+
+        # learnable upsampling
+        self.upsample = build_upsample_layer(
+            dict(type='carafe', channels=in_channels[-1], scale_factor=4))
+
+    def forward(self, inputs):
+        x = self._transform_inputs(inputs)
+        x_8, x_32 = x[0], x[1]
+
+        # 先模糊再上采样
+        x_32 = self.up_conv(x_32)
+        x_32 = self.upsample(x_32)
+        x_32 = self.semantic_attn(x_32)
+
+        x_cat = torch.cat([x_8, x_32], dim=1)
+        if self.with_fuse_attn:
+            x_cat = self.fuse_attn(x_cat)
+
+        # A*context + B*spatial + bias
+        out = self.conv_seg(x_cat)
+        return out

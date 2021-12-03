@@ -20,6 +20,7 @@ from .bisenetv1_exp2 import BiSeNetV1EXPCFG
 from .hybrid_transformer import HybridTransformer, HybridSwinResNet
 from .fast_scnn_exp import FastSCNNEXP
 from .shufflenetv2 import LiteShuffleNetV2
+from .attn_mobilenetv2 import AttnMobileNetV2
 
 __all__ = [
     'ResNet', 'ResNetV1c', 'ResNetV1d', 'ResNeXt', 'HRNet', 'FastSCNN',
@@ -27,5 +28,5 @@ __all__ = [
     'VisionTransformer', 'SwinTransformer', 'MixVisionTransformer',
     'BiSeNetV1', 'BiSeNetV2', 'ICNet', 'TIMMBackbone', 'BiSeNetV1EXP',
     'BiSeNetV1EXPCFG', 'HybridTransformer', 'HybridSwinResNet', 'FastSCNNEXP',
-    'LiteShuffleNetV2'
+    'LiteShuffleNetV2', 'AttnMobileNetV2'
 ]
